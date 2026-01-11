@@ -247,11 +247,7 @@ static CGFloat getHeaderFontSize() {
 
     NSFont *font = [NSFont systemFontOfSize:getHeaderFontSize() weight:NSFontWeightRegular];
 
-    // Text color: white for solid accent, label color otherwise
-    int64_t accentSetting = simplaylist_config::getConfigInt(
-        simplaylist_config::kHeaderAccentColor,
-        simplaylist_config::kDefaultHeaderAccentColor);
-    NSColor *textColor = (accentSetting == 2) ? [NSColor whiteColor] : [NSColor labelColor];
+    NSColor *textColor = [NSColor labelColor];
 
     NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
     style.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -278,30 +274,24 @@ static CGFloat getHeaderFontSize() {
         simplaylist_config::kHeaderAccentColor,
         simplaylist_config::kDefaultHeaderAccentColor);
 
-    switch (accentSetting) {
-        case 1: {
-            // Tinted: blend control background with accent color (~20%)
-            NSColor *base = [NSColor controlBackgroundColor];
-            NSColor *accent = [NSColor controlAccentColor];
-            // Convert to sRGB for blending
-            NSColor *baseRGB = [base colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-            NSColor *accentRGB = [accent colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-            if (baseRGB && accentRGB) {
-                CGFloat blendFactor = 0.2;
-                CGFloat r = baseRGB.redComponent * (1 - blendFactor) + accentRGB.redComponent * blendFactor;
-                CGFloat g = baseRGB.greenComponent * (1 - blendFactor) + accentRGB.greenComponent * blendFactor;
-                CGFloat b = baseRGB.blueComponent * (1 - blendFactor) + accentRGB.blueComponent * blendFactor;
-                return [NSColor colorWithSRGBRed:r green:g blue:b alpha:1.0];
-            }
-            return base;
+    if (accentSetting == 1) {
+        // Tinted: blend control background with accent color (~20%)
+        NSColor *base = [NSColor controlBackgroundColor];
+        NSColor *accent = [NSColor controlAccentColor];
+        // Convert to sRGB for blending
+        NSColor *baseRGB = [base colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+        NSColor *accentRGB = [accent colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+        if (baseRGB && accentRGB) {
+            CGFloat blendFactor = 0.2;
+            CGFloat r = baseRGB.redComponent * (1 - blendFactor) + accentRGB.redComponent * blendFactor;
+            CGFloat g = baseRGB.greenComponent * (1 - blendFactor) + accentRGB.greenComponent * blendFactor;
+            CGFloat b = baseRGB.blueComponent * (1 - blendFactor) + accentRGB.blueComponent * blendFactor;
+            return [NSColor colorWithSRGBRed:r green:g blue:b alpha:1.0];
         }
-        case 2:
-            // Solid: use accent color directly
-            return [NSColor controlAccentColor];
-        default:
-            // None: match native table header
-            return [NSColor controlBackgroundColor];
+        return base;
     }
+    // None: match native table header
+    return [NSColor controlBackgroundColor];
 }
 
 - (NSColor *)headerTopHighlightColor {

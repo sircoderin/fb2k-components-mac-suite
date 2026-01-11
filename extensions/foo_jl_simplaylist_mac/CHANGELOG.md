@@ -2,11 +2,16 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.2.1] - 2026-01-11
+
+### Changed
+- Removed "Solid" option from Header Accent (too similar to selection color)
+
 ## [1.2.0] - 2026-01-11
 
 ### Added
 - **Header Size setting**: Compact (22px) / Normal (28px) / Large (34px)
-- **Header Accent setting**: None / Tinted / Solid - use system accent color for column header
+- **Header Accent setting**: None / Tinted - use system accent color for column header
 - **URL drop support**: Accept URL drops from external sources (e.g., Cloud Browser)
 
 ### Changed

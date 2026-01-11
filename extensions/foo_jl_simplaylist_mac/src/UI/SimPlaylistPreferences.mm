@@ -215,7 +215,6 @@
     _headerAccentPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(boxMargin + labelWidth, displayContentY, 150, 26) pullsDown:NO];
     [_headerAccentPopup addItemWithTitle:@"None"];
     [_headerAccentPopup addItemWithTitle:@"Tinted"];
-    [_headerAccentPopup addItemWithTitle:@"Solid"];
     _headerAccentPopup.target = self;
     _headerAccentPopup.action = @selector(headerAccentChanged:);
     [displayContent addSubview:_headerAccentPopup];
