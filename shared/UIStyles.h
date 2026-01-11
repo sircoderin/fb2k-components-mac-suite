@@ -37,8 +37,37 @@ inline NSColor* alternateRowColor() {
 }
 
 inline NSColor* headerBackgroundColor() {
-    return [[NSColor controlBackgroundColor] blendedColorWithFraction:0.08
-                                                              ofColor:[NSColor labelColor]];
+    // Match native NSTableHeaderView - use control background (same as content area)
+    return [NSColor controlBackgroundColor];
+}
+
+inline NSColor* headerTopHighlightColor() {
+    // Subtle top highlight line
+    NSAppearance *appearance = [NSApp effectiveAppearance];
+    BOOL isDark = [appearance bestMatchFromAppearancesWithNames:
+                   @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] == NSAppearanceNameDarkAqua;
+    if (isDark) {
+        return [[NSColor whiteColor] colorWithAlphaComponent:0.08];
+    } else {
+        return [[NSColor whiteColor] colorWithAlphaComponent:0.5];
+    }
+}
+
+inline NSColor* headerBottomBorderColor() {
+    // Bottom border - slightly darker than separator
+    NSAppearance *appearance = [NSApp effectiveAppearance];
+    BOOL isDark = [appearance bestMatchFromAppearancesWithNames:
+                   @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] == NSAppearanceNameDarkAqua;
+    if (isDark) {
+        return [[NSColor blackColor] colorWithAlphaComponent:0.4];
+    } else {
+        return [[NSColor blackColor] colorWithAlphaComponent:0.15];
+    }
+}
+
+inline NSColor* headerDividerColor() {
+    // Column dividers
+    return [NSColor separatorColor];
 }
 
 inline NSColor* selectedBackgroundColor() {

@@ -218,10 +218,19 @@ static void importFilesToPlaylistAsync(t_size playlistIndex, t_size insertAt, NS
     auto notify = fb2k::service_new<SimPlaylistImportNotify>(playlistIndex, insertAt);
 
     for (NSURL* url in sortedURLs) {
-        // Accept file URLs or URLs with file path (media library may use different scheme)
-        NSString* path = url.path;
-        if (path && path.length > 0) {
-            notify->m_paths.add_item([path UTF8String]);
+        if (url.isFileURL) {
+            // File URL - use path
+            NSString* path = url.path;
+            if (path && path.length > 0) {
+                notify->m_paths.add_item([path UTF8String]);
+            }
+        } else {
+            // Web URL (e.g., soundcloud://, mixcloud://) - use full URL string
+            NSString* urlString = url.absoluteString;
+            if (urlString && urlString.length > 0) {
+                FB2K_console_formatter() << "[SimPlaylist] importing web URL: " << [urlString UTF8String];
+                notify->m_paths.add_item([urlString UTF8String]);
+            }
         }
     }
 
@@ -305,7 +314,16 @@ void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* cont
     container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.view = container;
 
-    CGFloat headerHeight = 22;
+    // Header height based on size setting (0=compact, 1=normal, 2=large)
+    int64_t headerSizeSetting = simplaylist_config::getConfigInt(
+        simplaylist_config::kColumnHeaderSize,
+        simplaylist_config::kDefaultColumnHeaderSize);
+    CGFloat headerHeight;
+    switch (headerSizeSetting) {
+        case 0: headerHeight = 22; break;  // Compact
+        case 2: headerHeight = 34; break;  // Large
+        default: headerHeight = 28; break; // Normal
+    }
     CGFloat containerHeight = 300;
 
     // Create header bar at TOP (in non-flipped view, y increases upward)
@@ -407,6 +425,22 @@ void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* cont
         _groupPresets = [GroupPreset defaultPresets];
         _activePresetIndex = 0;
     }
+
+    // Reload header size and update frames
+    int64_t headerSizeSetting = simplaylist_config::getConfigInt(
+        simplaylist_config::kColumnHeaderSize,
+        simplaylist_config::kDefaultColumnHeaderSize);
+    CGFloat headerHeight;
+    switch (headerSizeSetting) {
+        case 0: headerHeight = 22; break;  // Compact
+        case 2: headerHeight = 34; break;  // Large
+        default: headerHeight = 28; break; // Normal
+    }
+
+    // Update header bar and scroll view frames
+    CGFloat containerHeight = self.view.bounds.size.height;
+    _headerBar.frame = NSMakeRect(0, containerHeight - headerHeight, self.view.bounds.size.width, headerHeight);
+    _scrollView.frame = NSMakeRect(0, 0, self.view.bounds.size.width, containerHeight - headerHeight);
 
     // Reload group column width
     CGFloat newWidth = simplaylist_config::getConfigInt(

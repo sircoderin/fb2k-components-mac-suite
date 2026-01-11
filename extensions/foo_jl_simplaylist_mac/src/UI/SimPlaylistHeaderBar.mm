@@ -5,9 +5,31 @@
 
 #import "SimPlaylistHeaderBar.h"
 #import "../Core/ColumnDefinition.h"
+#import "../Core/ConfigHelper.h"
 
-static const CGFloat kHeaderHeight = 22.0;
 static const CGFloat kResizeHandleWidth = 6.0;
+
+static CGFloat getHeaderHeight() {
+    int64_t sizeSetting = simplaylist_config::getConfigInt(
+        simplaylist_config::kColumnHeaderSize,
+        simplaylist_config::kDefaultColumnHeaderSize);
+    switch (sizeSetting) {
+        case 0: return 22.0;  // Compact
+        case 2: return 34.0;  // Large
+        default: return 28.0; // Normal
+    }
+}
+
+static CGFloat getHeaderFontSize() {
+    int64_t sizeSetting = simplaylist_config::getConfigInt(
+        simplaylist_config::kColumnHeaderSize,
+        simplaylist_config::kDefaultColumnHeaderSize);
+    switch (sizeSetting) {
+        case 0: return 11.0;  // Compact
+        case 2: return 13.0;  // Large (+2)
+        default: return 12.0; // Normal (+1)
+    }
+}
 
 @interface SimPlaylistHeaderBar ()
 @property (nonatomic, assign) CGFloat scrollOffset;
@@ -128,15 +150,27 @@ static const CGFloat kResizeHandleWidth = 6.0;
 - (void)drawRect:(NSRect)dirtyRect {
     [super drawRect:dirtyRect];
 
-    // Background
+    CGFloat width = self.bounds.size.width;
+
+    // Background - match native NSTableHeaderView styling
     [[self headerBackgroundColor] setFill];
     NSRectFill(self.bounds);
+
+    // Top highlight line (subtle lighter edge like native headers)
+    // Skip for accent modes - looks better with clean edge
+    int64_t accentSetting = simplaylist_config::getConfigInt(
+        simplaylist_config::kHeaderAccentColor,
+        simplaylist_config::kDefaultHeaderAccentColor);
+    if (accentSetting == 0) {
+        [[self headerTopHighlightColor] setFill];
+        NSRectFill(NSMakeRect(0, 0, width, 1));
+    }
 
     // Group column area is empty (no header cell needed)
     // Just draw a subtle separator at the right edge
     if (_groupColumnWidth > 0) {
-        [[NSColor separatorColor] setFill];
-        NSRectFill(NSMakeRect(_groupColumnWidth - 1, 4, 1, kHeaderHeight - 8));
+        [[self headerDividerColor] setFill];
+        NSRectFill(NSMakeRect(_groupColumnWidth - 1, 5, 1, getHeaderHeight() - 10));
     }
 
     // Draw column headers - start right after group column
@@ -144,7 +178,7 @@ static const CGFloat kResizeHandleWidth = 6.0;
 
     for (NSInteger i = 0; i < (NSInteger)_columns.count; i++) {
         ColumnDefinition *col = _columns[i];
-        NSRect colRect = NSMakeRect(x, 0, col.width, kHeaderHeight);
+        NSRect colRect = NSMakeRect(x, 0, col.width, getHeaderHeight());
 
         // Only draw if visible
         if (NSMaxX(colRect) > _groupColumnWidth && NSMinX(colRect) < self.bounds.size.width) {
@@ -162,9 +196,9 @@ static const CGFloat kResizeHandleWidth = 6.0;
                 [self drawHeaderCell:col.name inRect:colRect highlighted:isHighlighted];
             }
 
-            // Draw resize handle visual
-            [[NSColor separatorColor] setFill];
-            NSRectFill(NSMakeRect(x + col.width - 1, 0, 1, kHeaderHeight));
+            // Draw column divider
+            [[self headerDividerColor] setFill];
+            NSRectFill(NSMakeRect(x + col.width - 1, 5, 1, getHeaderHeight() - 10));
         }
 
         x += col.width;
@@ -174,17 +208,17 @@ static const CGFloat kResizeHandleWidth = 6.0;
     if (_draggingColumn >= 0 && _dropTargetIndex >= 0) {
         CGFloat indicatorX = [self xOffsetForColumn:_dropTargetIndex];
         [[NSColor selectedContentBackgroundColor] setFill];
-        NSRectFill(NSMakeRect(indicatorX - 1, 0, 3, kHeaderHeight));
+        NSRectFill(NSMakeRect(indicatorX - 1, 0, 3, getHeaderHeight()));
     }
 
     // Draw dragged column overlay
     if (_draggingColumn >= 0 && _draggingColumn < (NSInteger)_columns.count) {
         ColumnDefinition *dragCol = _columns[_draggingColumn];
         CGFloat dragX = _dragStartX - _scrollOffset;
-        NSRect dragRect = NSMakeRect(dragX, 0, dragCol.width, kHeaderHeight);
+        NSRect dragRect = NSMakeRect(dragX, 0, dragCol.width, getHeaderHeight());
 
         // Semi-transparent background
-        [[[NSColor controlBackgroundColor] colorWithAlphaComponent:0.9] setFill];
+        [[[self headerBackgroundColor] colorWithAlphaComponent:0.9] setFill];
         NSRectFill(dragRect);
 
         [self drawHeaderCell:dragCol.name inRect:dragRect highlighted:YES];
@@ -195,35 +229,100 @@ static const CGFloat kResizeHandleWidth = 6.0;
         [borderPath stroke];
     }
 
-    // Bottom border
-    [[NSColor separatorColor] setFill];
-    NSRectFill(NSMakeRect(0, kHeaderHeight - 1, self.bounds.size.width, 1));
+    // Bottom border (darker separator line)
+    [[self headerBottomBorderColor] setFill];
+    NSRectFill(NSMakeRect(0, getHeaderHeight() - 1, width, 1));
 }
 
 - (void)drawHeaderCell:(NSString *)title inRect:(NSRect)rect highlighted:(BOOL)highlighted {
     if (highlighted) {
-        [[[NSColor labelColor] colorWithAlphaComponent:0.1] setFill];
+        [[[NSColor labelColor] colorWithAlphaComponent:0.06] setFill];
         NSRectFill(rect);
     }
 
-    NSRect textRect = NSInsetRect(rect, 6, 2);
+    // Native header: 4px left padding, text vertically centered
+    NSRect textRect = rect;
+    textRect.origin.x += 4;
+    textRect.size.width -= 8;  // 4px each side
 
-    NSDictionary *attrs = @{
-        NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: [NSColor secondaryLabelColor]
-    };
+    NSFont *font = [NSFont systemFontOfSize:getHeaderFontSize() weight:NSFontWeightRegular];
+
+    // Text color: white for solid accent, label color otherwise
+    int64_t accentSetting = simplaylist_config::getConfigInt(
+        simplaylist_config::kHeaderAccentColor,
+        simplaylist_config::kDefaultHeaderAccentColor);
+    NSColor *textColor = (accentSetting == 2) ? [NSColor whiteColor] : [NSColor labelColor];
 
     NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
     style.lineBreakMode = NSLineBreakByTruncatingTail;
 
-    NSMutableDictionary *attrsCopy = [attrs mutableCopy];
-    attrsCopy[NSParagraphStyleAttributeName] = style;
+    NSDictionary *attrs = @{
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: textColor,
+        NSParagraphStyleAttributeName: style
+    };
 
-    [title drawInRect:textRect withAttributes:attrsCopy];
+    // Calculate vertical centering
+    NSSize textSize = [title sizeWithAttributes:attrs];
+    CGFloat yOffset = (rect.size.height - textSize.height) / 2.0;
+    textRect.origin.y = yOffset;
+    textRect.size.height = textSize.height;
+
+    [title drawInRect:textRect withAttributes:attrs];
 }
 
+#pragma mark - Colors (Native NSTableHeaderView-matching)
+
 - (NSColor *)headerBackgroundColor {
-    return [NSColor windowBackgroundColor];
+    int64_t accentSetting = simplaylist_config::getConfigInt(
+        simplaylist_config::kHeaderAccentColor,
+        simplaylist_config::kDefaultHeaderAccentColor);
+
+    switch (accentSetting) {
+        case 1: {
+            // Tinted: blend control background with accent color (~20%)
+            NSColor *base = [NSColor controlBackgroundColor];
+            NSColor *accent = [NSColor controlAccentColor];
+            // Convert to sRGB for blending
+            NSColor *baseRGB = [base colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+            NSColor *accentRGB = [accent colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+            if (baseRGB && accentRGB) {
+                CGFloat blendFactor = 0.2;
+                CGFloat r = baseRGB.redComponent * (1 - blendFactor) + accentRGB.redComponent * blendFactor;
+                CGFloat g = baseRGB.greenComponent * (1 - blendFactor) + accentRGB.greenComponent * blendFactor;
+                CGFloat b = baseRGB.blueComponent * (1 - blendFactor) + accentRGB.blueComponent * blendFactor;
+                return [NSColor colorWithSRGBRed:r green:g blue:b alpha:1.0];
+            }
+            return base;
+        }
+        case 2:
+            // Solid: use accent color directly
+            return [NSColor controlAccentColor];
+        default:
+            // None: match native table header
+            return [NSColor controlBackgroundColor];
+    }
+}
+
+- (NSColor *)headerTopHighlightColor {
+    // Subtle top highlight - slightly lighter than background
+    BOOL isDark = [NSApp.effectiveAppearance bestMatchFromAppearancesWithNames:
+                   @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] == NSAppearanceNameDarkAqua;
+    if (isDark) {
+        return [[NSColor whiteColor] colorWithAlphaComponent:0.08];
+    } else {
+        return [[NSColor whiteColor] colorWithAlphaComponent:0.5];
+    }
+}
+
+- (NSColor *)headerBottomBorderColor {
+    // Bottom border - same as column separators
+    return [NSColor separatorColor];
+}
+
+- (NSColor *)headerDividerColor {
+    // Column dividers - subtle separator color
+    return [NSColor separatorColor];
 }
 
 #pragma mark - Mouse Events
@@ -394,7 +493,7 @@ static const CGFloat kResizeHandleWidth = 6.0;
     // Group column resize handle
     if (_groupColumnWidth > 0) {
         NSRect groupHandleRect = NSMakeRect(_groupColumnWidth - kResizeHandleWidth / 2, 0,
-                                            kResizeHandleWidth, kHeaderHeight);
+                                            kResizeHandleWidth, getHeaderHeight());
         [self addCursorRect:groupHandleRect cursor:[NSCursor resizeLeftRightCursor]];
     }
 
@@ -403,7 +502,7 @@ static const CGFloat kResizeHandleWidth = 6.0;
     for (NSInteger i = 0; i < (NSInteger)_columns.count; i++) {
         CGFloat colWidth = _columns[i].width;
         NSRect handleRect = NSMakeRect(x + colWidth - kResizeHandleWidth / 2, 0,
-                                       kResizeHandleWidth, kHeaderHeight);
+                                       kResizeHandleWidth, getHeaderHeight());
         [self addCursorRect:handleRect cursor:[NSCursor resizeLeftRightCursor]];
         x += colWidth;
     }

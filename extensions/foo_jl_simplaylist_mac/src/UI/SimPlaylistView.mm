@@ -121,7 +121,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     // Register for drag & drop
     [self registerForDraggedTypes:@[
         SimPlaylistPasteboardType,
-        NSPasteboardTypeFileURL
+        NSPasteboardTypeFileURL,
+        NSPasteboardTypeURL,    // Web URLs (e.g., from Cloud Browser)
+        NSPasteboardTypeString  // Plain text URLs as fallback
     ]];
 
     // Register for settings changes
@@ -1662,7 +1664,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
 - (void)drawFocusRingForRect:(NSRect)rect {
     // Only draw focus ring in columns area, not album art column
-    [[NSColor keyboardFocusIndicatorColor] setStroke];
+    // Use same color as selection background for consistency
+    [[NSColor selectedContentBackgroundColor] setStroke];
     NSRect focusRect = NSMakeRect(_groupColumnWidth, rect.origin.y,
                                   rect.size.width - _groupColumnWidth, rect.size.height);
     focusRect = NSInsetRect(focusRect, 1, 1);
@@ -2358,7 +2361,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     FB2K_console_formatter() << "[SimPlaylist] draggingEntered, types: "
                              << ([pb.types containsObject:SimPlaylistPasteboardType] ? "SimPlaylist " : "")
-                             << ([pb.types containsObject:NSPasteboardTypeFileURL] ? "FileURL" : "");
+                             << ([pb.types containsObject:NSPasteboardTypeFileURL] ? "FileURL " : "")
+                             << ([pb.types containsObject:NSPasteboardTypeURL] ? "URL " : "")
+                             << ([pb.types containsObject:NSPasteboardTypeString] ? "String" : "");
 
     if ([pb.types containsObject:SimPlaylistPasteboardType]) {
         // Option key = copy, otherwise move
@@ -2366,6 +2371,16 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         return optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
     } else if ([pb.types containsObject:NSPasteboardTypeFileURL]) {
         return NSDragOperationCopy;
+    } else if ([pb.types containsObject:NSPasteboardTypeURL]) {
+        // Web URLs (e.g., from Cloud Browser)
+        return NSDragOperationCopy;
+    } else if ([pb.types containsObject:NSPasteboardTypeString]) {
+        // Plain text - check if it looks like a URL
+        NSString *str = [pb stringForType:NSPasteboardTypeString];
+        if ([str hasPrefix:@"http://"] || [str hasPrefix:@"https://"] ||
+            [str hasPrefix:@"soundcloud://"] || [str hasPrefix:@"mixcloud://"]) {
+            return NSDragOperationCopy;
+        }
     }
     return NSDragOperationNone;
 }
@@ -2440,6 +2455,16 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         return optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
     } else if ([pb.types containsObject:NSPasteboardTypeFileURL]) {
         return NSDragOperationCopy;
+    } else if ([pb.types containsObject:NSPasteboardTypeURL]) {
+        // Web URLs (e.g., from Cloud Browser)
+        return NSDragOperationCopy;
+    } else if ([pb.types containsObject:NSPasteboardTypeString]) {
+        // Plain text - check if it looks like a URL
+        NSString *str = [pb stringForType:NSPasteboardTypeString];
+        if ([str hasPrefix:@"http://"] || [str hasPrefix:@"https://"] ||
+            [str hasPrefix:@"soundcloud://"] || [str hasPrefix:@"mixcloud://"]) {
+            return NSDragOperationCopy;
+        }
     }
     return NSDragOperationNone;
 }
@@ -2545,6 +2570,38 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
                 }
                 if ([_delegate respondsToSelector:@selector(playlistView:didReceiveDroppedURLs:atRow:)]) {
                     [_delegate playlistView:self didReceiveDroppedURLs:fileURLs atRow:_dropTargetRow];
+                }
+            }
+        }
+        _dropTargetRow = -1;
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+
+    // Web URL drop (e.g., from Cloud Browser)
+    if ([pb.types containsObject:NSPasteboardTypeURL]) {
+        NSArray *urls = [pb readObjectsForClasses:@[[NSURL class]] options:nil];
+        if (urls.count > 0) {
+            FB2K_console_formatter() << "[SimPlaylist] received URL drop: " << [[urls[0] absoluteString] UTF8String];
+            if ([_delegate respondsToSelector:@selector(playlistView:didReceiveDroppedURLs:atRow:)]) {
+                [_delegate playlistView:self didReceiveDroppedURLs:urls atRow:_dropTargetRow];
+            }
+        }
+        _dropTargetRow = -1;
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+
+    // Plain text URL drop (fallback for Cloud Browser)
+    if ([pb.types containsObject:NSPasteboardTypeString]) {
+        NSString *str = [pb stringForType:NSPasteboardTypeString];
+        if ([str hasPrefix:@"http://"] || [str hasPrefix:@"https://"] ||
+            [str hasPrefix:@"soundcloud://"] || [str hasPrefix:@"mixcloud://"]) {
+            FB2K_console_formatter() << "[SimPlaylist] received string URL drop: " << [str UTF8String];
+            NSURL *url = [NSURL URLWithString:str];
+            if (url) {
+                if ([_delegate respondsToSelector:@selector(playlistView:didReceiveDroppedURLs:atRow:)]) {
+                    [_delegate playlistView:self didReceiveDroppedURLs:@[url] atRow:_dropTargetRow];
                 }
             }
         }

@@ -2,6 +2,17 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.2.0] - 2026-01-11
+
+### Added
+- **Header Size setting**: Compact (22px) / Normal (28px) / Large (34px)
+- **Header Accent setting**: None / Tinted / Solid - use system accent color for column header
+- **URL drop support**: Accept URL drops from external sources (e.g., Cloud Browser)
+
+### Changed
+- Column header styling matches default foobar2000 playlist
+- Focus ring uses system accent color (matches selection)
+
 ## [1.1.7] - 2026-01-06
 
 ### Fixed

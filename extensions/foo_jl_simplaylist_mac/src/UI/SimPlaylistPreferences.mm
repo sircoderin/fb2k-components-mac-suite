@@ -31,6 +31,8 @@
 @property (nonatomic, strong) NSButton *hideSingleSubgroupCheckbox;
 @property (nonatomic, strong) NSButton *dimParenthesesCheckbox;
 @property (nonatomic, strong) NSPopUpButton *displaySizePopup;
+@property (nonatomic, strong) NSPopUpButton *headerSizePopup;
+@property (nonatomic, strong) NSPopUpButton *headerAccentPopup;
 @property (nonatomic, strong) NSArray<GroupPreset *> *presets;
 @property (nonatomic, assign) NSInteger currentPresetIndex;
 @end
@@ -121,12 +123,12 @@
     CGFloat displayBoxY = y;
     CGFloat displayContentY = 22;
 
-    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 220)];
+    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 250)];
     displayBox.title = @"Display Settings";
     displayBox.titlePosition = NSAtTop;
     [container addSubview:displayBox];
 
-    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 170)];
+    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 200)];
     displayBox.contentView = displayContent;
 
     // Header Display Style
@@ -189,8 +191,36 @@
     _displaySizePopup.target = self;
     _displaySizePopup.action = @selector(displaySizeChanged:);
     [displayContent addSubview:_displaySizePopup];
+    displayContentY += rowHeight + 4;
 
-    y = displayBoxY + 230;
+    // Header Size
+    NSTextField *headerSizeLabel = [NSTextField labelWithString:@"Header Size:"];
+    headerSizeLabel.frame = NSMakeRect(boxMargin, displayContentY + 3, labelWidth, 20);
+    [displayContent addSubview:headerSizeLabel];
+
+    _headerSizePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(boxMargin + labelWidth, displayContentY, 150, 26) pullsDown:NO];
+    [_headerSizePopup addItemWithTitle:@"Compact"];
+    [_headerSizePopup addItemWithTitle:@"Normal"];
+    [_headerSizePopup addItemWithTitle:@"Large"];
+    _headerSizePopup.target = self;
+    _headerSizePopup.action = @selector(headerSizeChanged:);
+    [displayContent addSubview:_headerSizePopup];
+    displayContentY += rowHeight + 4;
+
+    // Header Accent
+    NSTextField *headerAccentLabel = [NSTextField labelWithString:@"Header Accent:"];
+    headerAccentLabel.frame = NSMakeRect(boxMargin, displayContentY + 3, labelWidth, 20);
+    [displayContent addSubview:headerAccentLabel];
+
+    _headerAccentPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(boxMargin + labelWidth, displayContentY, 150, 26) pullsDown:NO];
+    [_headerAccentPopup addItemWithTitle:@"None"];
+    [_headerAccentPopup addItemWithTitle:@"Tinted"];
+    [_headerAccentPopup addItemWithTitle:@"Solid"];
+    _headerAccentPopup.target = self;
+    _headerAccentPopup.action = @selector(headerAccentChanged:);
+    [displayContent addSubview:_headerAccentPopup];
+
+    y = displayBoxY + 290;
 
     // Help text
     NSTextField *helpText = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, y, 460, 60)];
@@ -266,6 +296,18 @@
         simplaylist_config::kDisplaySize,
         simplaylist_config::kDefaultDisplaySize);
     [_displaySizePopup selectItemAtIndex:displaySize];
+
+    // Load header size (0=compact, 1=normal, 2=large)
+    int64_t headerSize = simplaylist_config::getConfigInt(
+        simplaylist_config::kColumnHeaderSize,
+        simplaylist_config::kDefaultColumnHeaderSize);
+    [_headerSizePopup selectItemAtIndex:headerSize];
+
+    // Load header accent (0=none, 1=tinted, 2=solid)
+    int64_t headerAccent = simplaylist_config::getConfigInt(
+        simplaylist_config::kHeaderAccentColor,
+        simplaylist_config::kDefaultHeaderAccentColor);
+    [_headerAccentPopup selectItemAtIndex:headerAccent];
 }
 
 - (void)updateFieldsForPreset:(GroupPreset *)preset {
@@ -390,6 +432,24 @@
     simplaylist_config::setConfigInt(simplaylist_config::kDisplaySize, size);
 
     // Needs full rebuild because row height changes
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
+                                                        object:nil];
+}
+
+- (void)headerSizeChanged:(id)sender {
+    NSInteger size = _headerSizePopup.indexOfSelectedItem;
+    simplaylist_config::setConfigInt(simplaylist_config::kColumnHeaderSize, size);
+
+    // Needs full rebuild because header height changes
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
+                                                        object:nil];
+}
+
+- (void)headerAccentChanged:(id)sender {
+    NSInteger accent = _headerAccentPopup.indexOfSelectedItem;
+    simplaylist_config::setConfigInt(simplaylist_config::kHeaderAccentColor, accent);
+
+    // Needs redraw for header color change
     [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
                                                         object:nil];
 }

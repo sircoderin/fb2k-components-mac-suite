@@ -49,6 +49,12 @@ static const char* const kHideSingleSubgroup = "hide_single_subgroup";
 // Display size: 0 = compact (smaller), 1 = normal (default), 2 = large
 static const char* const kDisplaySize = "display_size";
 
+// Column header bar size: 0 = compact, 1 = normal (default), 2 = large
+static const char* const kColumnHeaderSize = "column_header_size";
+
+// Column header accent color: 0 = none, 1 = tinted, 2 = solid
+static const char* const kHeaderAccentColor = "header_accent_color";
+
 // Default values - row heights sized for 13pt font
 static const int64_t kDefaultRowHeight = 22;
 static const int64_t kDefaultHeaderHeight = 28;
@@ -63,6 +69,8 @@ static const bool kDefaultShowFirstSubgroupHeader = true;  // Show "Disc 1" etc.
 static const bool kDefaultDimParentheses = true;  // Dim text in () and []
 static const bool kDefaultHideSingleSubgroup = false;  // Don't hide single subgroups by default
 static const int64_t kDefaultDisplaySize = 1;  // 0=compact, 1=normal, 2=large
+static const int64_t kDefaultColumnHeaderSize = 1;  // 0=compact, 1=normal, 2=large
+static const int64_t kDefaultHeaderAccentColor = 0;  // 0=none, 1=tinted, 2=solid
 
 // Helper functions
 inline std::string getFullKey(const char* key) {
