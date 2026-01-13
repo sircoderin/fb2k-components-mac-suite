@@ -52,8 +52,11 @@ static const char* const kDisplaySize = "display_size";
 // Column header bar size: 0 = compact, 1 = normal (default), 2 = large
 static const char* const kColumnHeaderSize = "column_header_size";
 
-// Column header accent color: 0 = none, 1 = tinted, 2 = solid
+// Column header accent color: 0 = none, 1 = tinted
 static const char* const kHeaderAccentColor = "header_accent_color";
+
+// Glass (transparent) background - allows content behind to show through
+static const char* const kGlassBackground = "glass_background";
 
 // Default values - row heights sized for 13pt font
 static const int64_t kDefaultRowHeight = 22;
@@ -70,7 +73,8 @@ static const bool kDefaultDimParentheses = true;  // Dim text in () and []
 static const bool kDefaultHideSingleSubgroup = false;  // Don't hide single subgroups by default
 static const int64_t kDefaultDisplaySize = 1;  // 0=compact, 1=normal, 2=large
 static const int64_t kDefaultColumnHeaderSize = 1;  // 0=compact, 1=normal, 2=large
-static const int64_t kDefaultHeaderAccentColor = 0;  // 0=none, 1=tinted, 2=solid
+static const int64_t kDefaultHeaderAccentColor = 0;  // 0=none, 1=tinted
+static const bool kDefaultGlassBackground = false;   // Opaque background by default
 
 // Helper functions
 inline std::string getFullKey(const char* key) {

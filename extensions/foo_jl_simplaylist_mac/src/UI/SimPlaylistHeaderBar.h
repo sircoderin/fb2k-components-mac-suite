@@ -8,6 +8,7 @@
 #pragma once
 
 #import <Cocoa/Cocoa.h>
+#import "../../../../shared/UIStyles.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -19,6 +20,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, weak, nullable) id<SimPlaylistHeaderBarDelegate> delegate;
 @property (nonatomic, strong) NSArray<ColumnDefinition *> *columns;
 @property (nonatomic, assign) CGFloat groupColumnWidth;
+
+// Style settings (set by controller based on config)
+@property (nonatomic, assign) fb2k_ui::SizeVariant headerSize;
+@property (nonatomic, assign) fb2k_ui::AccentMode accentMode;
+@property (nonatomic, assign) BOOL glassBackground;
 
 // Sync horizontal scroll with main view
 - (void)setScrollOffset:(CGFloat)offset;

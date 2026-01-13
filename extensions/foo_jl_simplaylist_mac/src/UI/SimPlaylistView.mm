@@ -11,6 +11,7 @@
 #import "../Core/ColumnDefinition.h"
 #import "../Core/ConfigHelper.h"
 #import "../Core/AlbumArtCache.h"
+#import "../../../../shared/UIStyles.h"
 
 NSString *const SimPlaylistSettingsChangedNotification = @"SimPlaylistSettingsChanged";
 NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.rows";
@@ -168,12 +169,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     using namespace simplaylist_config;
     _displaySize = getConfigInt(kDisplaySize, kDefaultDisplaySize);
 
-    // Row height based on display size: compact=19, normal=22, large=26
-    switch (_displaySize) {
-        case 0: _rowHeight = 19; break;  // Compact
-        case 2: _rowHeight = 26; break;  // Large
-        default: _rowHeight = 22; break; // Normal
-    }
+    // Row height from shared UIStyles
+    fb2k_ui::SizeVariant size = static_cast<fb2k_ui::SizeVariant>(_displaySize);
+    _rowHeight = fb2k_ui::rowHeight(size);
 
     _headerHeight = getConfigInt(kHeaderHeight, kDefaultHeaderHeight);
     _subgroupHeight = getConfigInt(kSubgroupHeight, kDefaultSubgroupHeight);
@@ -703,9 +701,11 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 - (void)drawRect:(NSRect)dirtyRect {
     [super drawRect:dirtyRect];
 
-    // Background
-    [[self backgroundColor] setFill];
-    NSRectFill(dirtyRect);
+    // Background - skip for glass mode to let underlying effect show through
+    if (!_glassBackground) {
+        [fb2k_ui::backgroundColor() setFill];
+        NSRectFill(dirtyRect);
+    }
 
     NSInteger totalRows = [self rowCount];
     if (totalRows == 0) {
@@ -794,7 +794,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         NSRect contentRect = NSMakeRect(_groupColumnWidth, rect.origin.y,
                                         rect.size.width - _groupColumnWidth, rect.size.height);
         if (isSelected) {
-            [[NSColor selectedContentBackgroundColor] setFill];
+            [fb2k_ui::selectedBackgroundColor() setFill];
         } else {
             [[[NSColor systemYellowColor] colorWithAlphaComponent:0.15] setFill];
         }
@@ -1005,12 +1005,12 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     // Draw columns
     CGFloat x = _groupColumnWidth;
-    NSColor *textColor = selected ? [NSColor selectedMenuItemTextColor] : [NSColor labelColor];
-    NSColor *dimmedColor = selected ? [[NSColor selectedMenuItemTextColor] colorWithAlphaComponent:0.5]
-                                    : [NSColor secondaryLabelColor];
-    // Font size based on display size: compact=12, normal=13, large=14
-    CGFloat fontSize = (_displaySize == 0) ? 12 : (_displaySize == 2) ? 14 : 13;
-    NSFont *font = [NSFont systemFontOfSize:fontSize];
+    NSColor *textColor = selected ? fb2k_ui::selectedTextColor() : fb2k_ui::textColor();
+    NSColor *dimmedColor = selected ? [fb2k_ui::selectedTextColor() colorWithAlphaComponent:0.5]
+                                    : fb2k_ui::secondaryTextColor();
+    // Font size from shared UIStyles
+    fb2k_ui::SizeVariant size = static_cast<fb2k_ui::SizeVariant>(_displaySize);
+    NSFont *font = fb2k_ui::rowFont(size);
 
     // Calculate vertical centering with equal top/bottom padding
     CGFloat textHeight = font.ascender - font.descender;
@@ -1061,6 +1061,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
 // Fill group column background (called BEFORE drawing row content)
 - (void)fillGroupColumnBackgroundInRect:(NSRect)dirtyRect {
+    // Skip background fill for glass mode - let the effect show through
+    if (_glassBackground) return;
     if (_groupStarts.count == 0) return;
 
     NSRect visibleRect = [self visibleRect];
@@ -1088,7 +1090,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
             // Fill only below the header row
             NSRect groupColRect = NSMakeRect(0, groupTop + headerOffset, _groupColumnWidth, groupHeight - headerOffset);
             if (NSIntersectsRect(groupColRect, dirtyRect)) {
-                [[self backgroundColor] setFill];
+                [fb2k_ui::backgroundColor() setFill];
                 NSRectFill(NSIntersectionRect(groupColRect, dirtyRect));
             }
         }
@@ -1096,7 +1098,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         // Styles 0, 2, 3: Fill entire group column with background
         NSRect groupColRect = NSMakeRect(0, NSMinY(visibleRect), _groupColumnWidth, visibleRect.size.height);
         if (NSIntersectsRect(groupColRect, dirtyRect)) {
-            [[self backgroundColor] setFill];
+            [fb2k_ui::backgroundColor() setFill];
             NSRectFill(NSIntersectionRect(groupColRect, dirtyRect));
         }
     }
@@ -1265,7 +1267,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     // Background - clean design without alternating stripes
     if (isSelected) {
-        [[NSColor selectedContentBackgroundColor] setFill];
+        [fb2k_ui::selectedBackgroundColor() setFill];
         NSRectFill(rect);
     } else if (isPlaying && _showNowPlayingShading) {
         [[[NSColor systemYellowColor] colorWithAlphaComponent:0.15] setFill];
@@ -1353,7 +1355,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     // Background
     if (isSelected) {
-        [[NSColor selectedContentBackgroundColor] setFill];
+        [fb2k_ui::selectedBackgroundColor() setFill];
         NSRectFill(rect);
     } else if (isPlaying && _showNowPlayingShading) {
         [[[NSColor systemYellowColor] colorWithAlphaComponent:0.15] setFill];
@@ -1512,7 +1514,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         NSRect contentRect = NSMakeRect(_groupColumnWidth, rect.origin.y,
                                         rect.size.width - _groupColumnWidth, rect.size.height);
         if (isSelected) {
-            [[NSColor selectedContentBackgroundColor] setFill];
+            [fb2k_ui::selectedBackgroundColor() setFill];
         } else {
             [[[NSColor systemYellowColor] colorWithAlphaComponent:0.15] setFill];
         }
@@ -1665,7 +1667,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 - (void)drawFocusRingForRect:(NSRect)rect {
     // Only draw focus ring in columns area, not album art column
     // Use same color as selection background for consistency
-    [[NSColor selectedContentBackgroundColor] setStroke];
+    [fb2k_ui::selectedBackgroundColor() setStroke];
     NSRect focusRect = NSMakeRect(_groupColumnWidth, rect.origin.y,
                                   rect.size.width - _groupColumnWidth, rect.size.height);
     focusRect = NSInsetRect(focusRect, 1, 1);
@@ -1801,10 +1803,6 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 }
 
 #pragma mark - Colors
-
-- (NSColor *)backgroundColor {
-    return [NSColor controlBackgroundColor];
-}
 
 - (NSColor *)alternateRowColor {
     return [[NSColor controlBackgroundColor] blendedColorWithFraction:0.03

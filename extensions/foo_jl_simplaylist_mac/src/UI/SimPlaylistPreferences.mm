@@ -33,6 +33,7 @@
 @property (nonatomic, strong) NSPopUpButton *displaySizePopup;
 @property (nonatomic, strong) NSPopUpButton *headerSizePopup;
 @property (nonatomic, strong) NSPopUpButton *headerAccentPopup;
+@property (nonatomic, strong) NSButton *glassBackgroundCheckbox;
 @property (nonatomic, strong) NSArray<GroupPreset *> *presets;
 @property (nonatomic, assign) NSInteger currentPresetIndex;
 @end
@@ -123,12 +124,12 @@
     CGFloat displayBoxY = y;
     CGFloat displayContentY = 22;
 
-    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 250)];
+    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 280)];
     displayBox.title = @"Display Settings";
     displayBox.titlePosition = NSAtTop;
     [container addSubview:displayBox];
 
-    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 200)];
+    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 230)];
     displayBox.contentView = displayContent;
 
     // Header Display Style
@@ -218,8 +219,16 @@
     _headerAccentPopup.target = self;
     _headerAccentPopup.action = @selector(headerAccentChanged:);
     [displayContent addSubview:_headerAccentPopup];
+    displayContentY += rowHeight + 4;
 
-    y = displayBoxY + 290;
+    // Glass Background
+    _glassBackgroundCheckbox = [NSButton checkboxWithTitle:@"Glass background (requires restart)"
+                                                    target:self
+                                                    action:@selector(glassBackgroundChanged:)];
+    _glassBackgroundCheckbox.frame = NSMakeRect(boxMargin + labelWidth, displayContentY, 280, 20);
+    [displayContent addSubview:_glassBackgroundCheckbox];
+
+    y = displayBoxY + 320;
 
     // Help text
     NSTextField *helpText = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, y, 460, 60)];
@@ -302,11 +311,17 @@
         simplaylist_config::kDefaultColumnHeaderSize);
     [_headerSizePopup selectItemAtIndex:headerSize];
 
-    // Load header accent (0=none, 1=tinted, 2=solid)
+    // Load header accent (0=none, 1=tinted)
     int64_t headerAccent = simplaylist_config::getConfigInt(
         simplaylist_config::kHeaderAccentColor,
         simplaylist_config::kDefaultHeaderAccentColor);
     [_headerAccentPopup selectItemAtIndex:headerAccent];
+
+    // Load glass background
+    bool glassBackground = simplaylist_config::getConfigBool(
+        simplaylist_config::kGlassBackground,
+        simplaylist_config::kDefaultGlassBackground);
+    _glassBackgroundCheckbox.state = glassBackground ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
 - (void)updateFieldsForPreset:(GroupPreset *)preset {
@@ -449,6 +464,15 @@
     simplaylist_config::setConfigInt(simplaylist_config::kHeaderAccentColor, accent);
 
     // Needs redraw for header color change
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
+                                                        object:nil];
+}
+
+- (void)glassBackgroundChanged:(id)sender {
+    bool enabled = (_glassBackgroundCheckbox.state == NSControlStateValueOn);
+    simplaylist_config::setConfigBool(simplaylist_config::kGlassBackground, enabled);
+
+    // Needs full rebuild - container view type changes
     [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
                                                         object:nil];
 }

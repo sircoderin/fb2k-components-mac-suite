@@ -15,7 +15,9 @@
 #import "../Core/TitleFormatHelper.h"
 #import "../Core/ConfigHelper.h"
 #import "../Core/AlbumArtCache.h"
+#import "../../../../shared/UIStyles.h"
 
+#include <SDK/menu_helpers.h>
 #include <set>
 #include <vector>
 
@@ -266,10 +268,21 @@ static void importFb2kPathsToPlaylistAsync(t_size playlistIndex, t_size insertAt
 void SimPlaylistCallbackManager_registerController(SimPlaylistController* controller);
 void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* controller);
 
+// Track reload operations for progress display
+struct ReloadOperation {
+    t_size totalCount;
+    t_size processedCount;
+    bool completed;
+};
+
 @interface SimPlaylistController () <SimPlaylistViewDelegate, SimPlaylistHeaderBarDelegate> {
     // Context menu manager - must be stored for execute_by_id to work
     contextmenu_manager_v2::ptr _contextMenuManager;
     contextmenu_manager::ptr _contextMenuManagerV1;
+    // Store handles for custom menu actions (Reload Info)
+    metadb_handle_list _contextMenuHandles;
+    // Active reload operations for progress tracking
+    std::vector<ReloadOperation> _reloadOperations;
 }
 @property (nonatomic, strong) SimPlaylistView *playlistView;
 @property (nonatomic, strong) SimPlaylistHeaderBar *headerBar;
@@ -309,21 +322,31 @@ void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* cont
 }
 
 - (void)loadView {
-    // Create container view
-    NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+    // Load style settings from config
+    BOOL glassBackground = simplaylist_config::getConfigBool(
+        simplaylist_config::kGlassBackground,
+        simplaylist_config::kDefaultGlassBackground);
+    fb2k_ui::SizeVariant headerSize = static_cast<fb2k_ui::SizeVariant>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kColumnHeaderSize,
+            simplaylist_config::kDefaultColumnHeaderSize));
+    fb2k_ui::AccentMode accentMode = static_cast<fb2k_ui::AccentMode>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kHeaderAccentColor,
+            simplaylist_config::kDefaultHeaderAccentColor));
+
+    // Create container view - use glass helper for transparent mode
+    NSView *container;
+    if (glassBackground) {
+        container = fb2k_ui::createGlassContainer(NSMakeRect(0, 0, 400, 300));
+    } else {
+        container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+    }
     container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.view = container;
 
-    // Header height based on size setting (0=compact, 1=normal, 2=large)
-    int64_t headerSizeSetting = simplaylist_config::getConfigInt(
-        simplaylist_config::kColumnHeaderSize,
-        simplaylist_config::kDefaultColumnHeaderSize);
-    CGFloat headerHeight;
-    switch (headerSizeSetting) {
-        case 0: headerHeight = 22; break;  // Compact
-        case 2: headerHeight = 34; break;  // Large
-        default: headerHeight = 28; break; // Normal
-    }
+    // Header height from shared UIStyles
+    CGFloat headerHeight = fb2k_ui::headerHeight(headerSize);
     CGFloat containerHeight = 300;
 
     // Create header bar at TOP (in non-flipped view, y increases upward)
@@ -334,6 +357,9 @@ void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* cont
     _headerBar.groupColumnWidth = simplaylist_config::getConfigInt(
         simplaylist_config::kGroupColumnWidth,
         simplaylist_config::kDefaultGroupColumnWidth);
+    _headerBar.headerSize = headerSize;
+    _headerBar.accentMode = accentMode;
+    _headerBar.glassBackground = glassBackground;
     [container addSubview:_headerBar];
 
     // Create scroll view BELOW header (from y=0 to y=containerHeight-headerHeight)
@@ -343,10 +369,7 @@ void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* cont
     _scrollView.hasHorizontalScroller = YES;
     _scrollView.autohidesScrollers = YES;
     _scrollView.borderType = NSNoBorder;
-    _scrollView.drawsBackground = YES;
-    _scrollView.backgroundColor = [NSColor controlBackgroundColor];
-    // Enable smooth scrolling optimizations
-    _scrollView.wantsLayer = YES;
+    _scrollView.wantsLayer = YES;  // Enable smooth scrolling optimizations
 
     // Create playlist view
     _playlistView = [[SimPlaylistView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
@@ -358,10 +381,12 @@ void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* cont
     _playlistView.albumArtSize = simplaylist_config::getConfigInt(
         simplaylist_config::kAlbumArtSize,
         simplaylist_config::kDefaultAlbumArtSize);
+    _playlistView.glassBackground = glassBackground;
     _playlistView.wantsLayer = YES;  // Layer backing for smooth drawing
 
-    // Configure scroll view
+    // Configure scroll view and set document view
     _scrollView.documentView = _playlistView;
+    fb2k_ui::configureScrollViewForGlass(_scrollView, glassBackground);
     [container addSubview:_scrollView];
 
     // Observe scroll changes to sync header
@@ -426,18 +451,20 @@ void SimPlaylistCallbackManager_unregisterController(SimPlaylistController* cont
         _activePresetIndex = 0;
     }
 
-    // Reload header size and update frames
-    int64_t headerSizeSetting = simplaylist_config::getConfigInt(
-        simplaylist_config::kColumnHeaderSize,
-        simplaylist_config::kDefaultColumnHeaderSize);
-    CGFloat headerHeight;
-    switch (headerSizeSetting) {
-        case 0: headerHeight = 22; break;  // Compact
-        case 2: headerHeight = 34; break;  // Large
-        default: headerHeight = 28; break; // Normal
-    }
+    // Reload header size and accent mode from config
+    fb2k_ui::SizeVariant headerSize = static_cast<fb2k_ui::SizeVariant>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kColumnHeaderSize,
+            simplaylist_config::kDefaultColumnHeaderSize));
+    fb2k_ui::AccentMode accentMode = static_cast<fb2k_ui::AccentMode>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kHeaderAccentColor,
+            simplaylist_config::kDefaultHeaderAccentColor));
+    CGFloat headerHeight = fb2k_ui::headerHeight(headerSize);
 
-    // Update header bar and scroll view frames
+    // Update header bar properties and frames
+    _headerBar.headerSize = headerSize;
+    _headerBar.accentMode = accentMode;
     CGFloat containerHeight = self.view.bounds.size.height;
     _headerBar.frame = NSMakeRect(0, containerHeight - headerHeight, self.view.bounds.size.width, headerHeight);
     _scrollView.frame = NSMakeRect(0, 0, self.view.bounds.size.width, containerHeight - headerHeight);
@@ -1406,6 +1433,9 @@ static NSInteger _groupDetectionGeneration = 0;
         _contextMenuManager.release();
         _contextMenuManagerV1.release();
 
+        // Store handles for custom menu actions
+        _contextMenuHandles = handles;
+
         // Create context menu manager
         auto cmm = contextmenu_manager_v2::tryGet();
         if (!cmm.is_valid()) {
@@ -1427,6 +1457,33 @@ static NSInteger _groupDetectionGeneration = 0;
         NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
         [menu setAutoenablesItems:NO];
 
+        // Add custom "Reload Info" item at top
+        NSMenuItem *reloadItem = [[NSMenuItem alloc] initWithTitle:@"Reload Info"
+                                                            action:@selector(reloadInfoClicked:)
+                                                     keyEquivalent:@""];
+        reloadItem.target = self;
+        [menu addItem:reloadItem];
+
+        // Show progress for any active reload operations
+        // Clean up completed operations first
+        _reloadOperations.erase(
+            std::remove_if(_reloadOperations.begin(), _reloadOperations.end(),
+                [](const ReloadOperation& op) { return op.completed; }),
+            _reloadOperations.end());
+
+        for (size_t i = 0; i < _reloadOperations.size(); i++) {
+            const auto& op = _reloadOperations[i];
+            NSString *progressText = [NSString stringWithFormat:@"Reloading: %zu / %zu",
+                                      op.processedCount, op.totalCount];
+            NSMenuItem *progressItem = [[NSMenuItem alloc] initWithTitle:progressText
+                                                                  action:nil
+                                                           keyEquivalent:@""];
+            progressItem.enabled = NO;  // Non-selectable
+            [menu addItem:progressItem];
+        }
+
+        [menu addItem:[NSMenuItem separatorItem]];
+
         [self buildNSMenu:menu fromMenuItem:root contextManager:_contextMenuManager];
 
         // Show menu
@@ -1444,6 +1501,32 @@ static NSInteger _groupDetectionGeneration = 0;
 
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
     [menu setAutoenablesItems:NO];
+
+    // Add custom "Reload Info" item at top
+    NSMenuItem *reloadItem = [[NSMenuItem alloc] initWithTitle:@"Reload Info"
+                                                        action:@selector(reloadInfoClicked:)
+                                                 keyEquivalent:@""];
+    reloadItem.target = self;
+    [menu addItem:reloadItem];
+
+    // Show progress for any active reload operations
+    _reloadOperations.erase(
+        std::remove_if(_reloadOperations.begin(), _reloadOperations.end(),
+            [](const ReloadOperation& op) { return op.completed; }),
+        _reloadOperations.end());
+
+    for (size_t i = 0; i < _reloadOperations.size(); i++) {
+        const auto& op = _reloadOperations[i];
+        NSString *progressText = [NSString stringWithFormat:@"Reloading: %zu / %zu",
+                                  op.processedCount, op.totalCount];
+        NSMenuItem *progressItem = [[NSMenuItem alloc] initWithTitle:progressText
+                                                              action:nil
+                                                       keyEquivalent:@""];
+        progressItem.enabled = NO;
+        [menu addItem:progressItem];
+    }
+
+    [menu addItem:[NSMenuItem separatorItem]];
 
     [self buildNSMenuFromNode:menu parentNode:root contextManager:cmm baseID:0];
 
@@ -1567,6 +1650,46 @@ static NSInteger _groupDetectionGeneration = 0;
     } @catch (NSException *exception) {
         // Ignore
     }
+}
+
+- (void)reloadInfoClicked:(NSMenuItem *)sender {
+    if (_contextMenuHandles.get_count() == 0) return;
+
+    // Create a new reload operation to track progress
+    size_t opIndex = _reloadOperations.size();
+    _reloadOperations.push_back({
+        .totalCount = _contextMenuHandles.get_count(),
+        .processedCount = 0,
+        .completed = false
+    });
+
+    // Copy handles for the async operation
+    metadb_handle_list handles = _contextMenuHandles;
+
+    // Use async background reload - no modal dialog
+    // The SDK doesn't provide per-item progress, so we mark complete when done
+    __weak SimPlaylistController *weakSelf = self;
+
+    // Create completion callback
+    auto notify = fb2k::makeCompletionNotify([weakSelf, opIndex](unsigned status) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SimPlaylistController *strongSelf = weakSelf;
+            if (strongSelf && opIndex < strongSelf->_reloadOperations.size()) {
+                strongSelf->_reloadOperations[opIndex].completed = true;
+                strongSelf->_reloadOperations[opIndex].processedCount =
+                    strongSelf->_reloadOperations[opIndex].totalCount;
+            }
+        });
+    });
+
+    // Run in background with no modal UI
+    metadb_io_v2::get()->load_info_async(
+        handles,
+        metadb_io::load_info_force,
+        core_api::get_main_window(),
+        metadb_io_v2::op_flag_background | metadb_io_v2::op_flag_delay_ui,
+        notify
+    );
 }
 
 - (void)playlistViewDidRequestRemoveSelection:(SimPlaylistView *)view {

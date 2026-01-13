@@ -5,31 +5,6 @@
 
 #import "SimPlaylistHeaderBar.h"
 #import "../Core/ColumnDefinition.h"
-#import "../Core/ConfigHelper.h"
-
-static const CGFloat kResizeHandleWidth = 6.0;
-
-static CGFloat getHeaderHeight() {
-    int64_t sizeSetting = simplaylist_config::getConfigInt(
-        simplaylist_config::kColumnHeaderSize,
-        simplaylist_config::kDefaultColumnHeaderSize);
-    switch (sizeSetting) {
-        case 0: return 22.0;  // Compact
-        case 2: return 34.0;  // Large
-        default: return 28.0; // Normal
-    }
-}
-
-static CGFloat getHeaderFontSize() {
-    int64_t sizeSetting = simplaylist_config::getConfigInt(
-        simplaylist_config::kColumnHeaderSize,
-        simplaylist_config::kDefaultColumnHeaderSize);
-    switch (sizeSetting) {
-        case 0: return 11.0;  // Compact
-        case 2: return 13.0;  // Large (+2)
-        default: return 12.0; // Normal (+1)
-    }
-}
 
 @interface SimPlaylistHeaderBar ()
 @property (nonatomic, assign) CGFloat scrollOffset;
@@ -125,8 +100,8 @@ static CGFloat getHeaderFontSize() {
 - (NSInteger)resizeHandleAtX:(CGFloat)x {
     // Check group column resize handle first (right edge of group column)
     if (_groupColumnWidth > 0) {
-        CGFloat groupHandleX = _groupColumnWidth - kResizeHandleWidth / 2;
-        if (x >= groupHandleX && x <= groupHandleX + kResizeHandleWidth) {
+        CGFloat groupHandleX = _groupColumnWidth - fb2k_ui::kResizeHandleWidth / 2;
+        if (x >= groupHandleX && x <= groupHandleX + fb2k_ui::kResizeHandleWidth) {
             return -2;  // Special value for group column
         }
     }
@@ -135,9 +110,9 @@ static CGFloat getHeaderFontSize() {
 
     for (NSInteger i = 0; i < (NSInteger)_columns.count; i++) {
         CGFloat colWidth = _columns[i].width;
-        CGFloat handleX = currentX + colWidth - kResizeHandleWidth / 2;
+        CGFloat handleX = currentX + colWidth - fb2k_ui::kResizeHandleWidth / 2;
 
-        if (x >= handleX && x <= handleX + kResizeHandleWidth) {
+        if (x >= handleX && x <= handleX + fb2k_ui::kResizeHandleWidth) {
             return i;
         }
         currentX += colWidth;
@@ -151,26 +126,31 @@ static CGFloat getHeaderFontSize() {
     [super drawRect:dirtyRect];
 
     CGFloat width = self.bounds.size.width;
+    CGFloat height = fb2k_ui::headerHeight(_headerSize);
 
-    // Background - match native NSTableHeaderView styling
-    [[self headerBackgroundColor] setFill];
-    NSRectFill(self.bounds);
+    // Background - use glass-aware colors (returns nil for full transparency, semi-opaque for accessibility)
+    NSColor *bgColor = _glassBackground
+        ? fb2k_ui::headerBackgroundColorForGlass(_accentMode)
+        : fb2k_ui::headerBackgroundColor(_accentMode);
+    if (bgColor) {
+        [bgColor setFill];
+        NSRectFill(self.bounds);
+    }
 
     // Top highlight line (subtle lighter edge like native headers)
-    // Skip for accent modes - looks better with clean edge
-    int64_t accentSetting = simplaylist_config::getConfigInt(
-        simplaylist_config::kHeaderAccentColor,
-        simplaylist_config::kDefaultHeaderAccentColor);
-    if (accentSetting == 0) {
-        [[self headerTopHighlightColor] setFill];
+    NSColor *highlight = _glassBackground
+        ? fb2k_ui::headerTopHighlightColorForGlass(_accentMode)
+        : fb2k_ui::headerTopHighlightColor(_accentMode);
+    if (highlight) {
+        [highlight setFill];
         NSRectFill(NSMakeRect(0, 0, width, 1));
     }
 
     // Group column area is empty (no header cell needed)
     // Just draw a subtle separator at the right edge
     if (_groupColumnWidth > 0) {
-        [[self headerDividerColor] setFill];
-        NSRectFill(NSMakeRect(_groupColumnWidth - 1, 5, 1, getHeaderHeight() - 10));
+        [fb2k_ui::headerDividerColor() setFill];
+        NSRectFill(NSMakeRect(_groupColumnWidth - 1, 5, 1, height - 10));
     }
 
     // Draw column headers - start right after group column
@@ -178,7 +158,7 @@ static CGFloat getHeaderFontSize() {
 
     for (NSInteger i = 0; i < (NSInteger)_columns.count; i++) {
         ColumnDefinition *col = _columns[i];
-        NSRect colRect = NSMakeRect(x, 0, col.width, getHeaderHeight());
+        NSRect colRect = NSMakeRect(x, 0, col.width, height);
 
         // Only draw if visible
         if (NSMaxX(colRect) > _groupColumnWidth && NSMinX(colRect) < self.bounds.size.width) {
@@ -197,8 +177,8 @@ static CGFloat getHeaderFontSize() {
             }
 
             // Draw column divider
-            [[self headerDividerColor] setFill];
-            NSRectFill(NSMakeRect(x + col.width - 1, 5, 1, getHeaderHeight() - 10));
+            [fb2k_ui::headerDividerColor() setFill];
+            NSRectFill(NSMakeRect(x + col.width - 1, 5, 1, height - 10));
         }
 
         x += col.width;
@@ -207,31 +187,31 @@ static CGFloat getHeaderFontSize() {
     // Draw drop indicator during drag
     if (_draggingColumn >= 0 && _dropTargetIndex >= 0) {
         CGFloat indicatorX = [self xOffsetForColumn:_dropTargetIndex];
-        [[NSColor selectedContentBackgroundColor] setFill];
-        NSRectFill(NSMakeRect(indicatorX - 1, 0, 3, getHeaderHeight()));
+        [fb2k_ui::focusRingColor() setFill];
+        NSRectFill(NSMakeRect(indicatorX - 1, 0, 3, height));
     }
 
     // Draw dragged column overlay
     if (_draggingColumn >= 0 && _draggingColumn < (NSInteger)_columns.count) {
         ColumnDefinition *dragCol = _columns[_draggingColumn];
         CGFloat dragX = _dragStartX - _scrollOffset;
-        NSRect dragRect = NSMakeRect(dragX, 0, dragCol.width, getHeaderHeight());
+        NSRect dragRect = NSMakeRect(dragX, 0, dragCol.width, height);
 
         // Semi-transparent background
-        [[[self headerBackgroundColor] colorWithAlphaComponent:0.9] setFill];
+        [[fb2k_ui::headerBackgroundColor(_accentMode) colorWithAlphaComponent:0.9] setFill];
         NSRectFill(dragRect);
 
         [self drawHeaderCell:dragCol.name inRect:dragRect highlighted:YES];
 
         // Border
-        [[NSColor selectedContentBackgroundColor] setStroke];
+        [fb2k_ui::focusRingColor() setStroke];
         NSBezierPath *borderPath = [NSBezierPath bezierPathWithRect:NSInsetRect(dragRect, 0.5, 0.5)];
         [borderPath stroke];
     }
 
     // Bottom border (darker separator line)
-    [[self headerBottomBorderColor] setFill];
-    NSRectFill(NSMakeRect(0, getHeaderHeight() - 1, width, 1));
+    [fb2k_ui::headerBottomBorderColor() setFill];
+    NSRectFill(NSMakeRect(0, height - 1, width, 1));
 }
 
 - (void)drawHeaderCell:(NSString *)title inRect:(NSRect)rect highlighted:(BOOL)highlighted {
@@ -245,9 +225,8 @@ static CGFloat getHeaderFontSize() {
     textRect.origin.x += 4;
     textRect.size.width -= 8;  // 4px each side
 
-    NSFont *font = [NSFont systemFontOfSize:getHeaderFontSize() weight:NSFontWeightRegular];
-
-    NSColor *textColor = [NSColor labelColor];
+    NSFont *font = fb2k_ui::headerFont(_headerSize);
+    NSColor *textColor = fb2k_ui::headerTextColor();
 
     NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
     style.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -265,54 +244,6 @@ static CGFloat getHeaderFontSize() {
     textRect.size.height = textSize.height;
 
     [title drawInRect:textRect withAttributes:attrs];
-}
-
-#pragma mark - Colors (Native NSTableHeaderView-matching)
-
-- (NSColor *)headerBackgroundColor {
-    int64_t accentSetting = simplaylist_config::getConfigInt(
-        simplaylist_config::kHeaderAccentColor,
-        simplaylist_config::kDefaultHeaderAccentColor);
-
-    if (accentSetting == 1) {
-        // Tinted: blend control background with accent color (~20%)
-        NSColor *base = [NSColor controlBackgroundColor];
-        NSColor *accent = [NSColor controlAccentColor];
-        // Convert to sRGB for blending
-        NSColor *baseRGB = [base colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-        NSColor *accentRGB = [accent colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-        if (baseRGB && accentRGB) {
-            CGFloat blendFactor = 0.2;
-            CGFloat r = baseRGB.redComponent * (1 - blendFactor) + accentRGB.redComponent * blendFactor;
-            CGFloat g = baseRGB.greenComponent * (1 - blendFactor) + accentRGB.greenComponent * blendFactor;
-            CGFloat b = baseRGB.blueComponent * (1 - blendFactor) + accentRGB.blueComponent * blendFactor;
-            return [NSColor colorWithSRGBRed:r green:g blue:b alpha:1.0];
-        }
-        return base;
-    }
-    // None: match native table header
-    return [NSColor controlBackgroundColor];
-}
-
-- (NSColor *)headerTopHighlightColor {
-    // Subtle top highlight - slightly lighter than background
-    BOOL isDark = [NSApp.effectiveAppearance bestMatchFromAppearancesWithNames:
-                   @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]] == NSAppearanceNameDarkAqua;
-    if (isDark) {
-        return [[NSColor whiteColor] colorWithAlphaComponent:0.08];
-    } else {
-        return [[NSColor whiteColor] colorWithAlphaComponent:0.5];
-    }
-}
-
-- (NSColor *)headerBottomBorderColor {
-    // Bottom border - same as column separators
-    return [NSColor separatorColor];
-}
-
-- (NSColor *)headerDividerColor {
-    // Column dividers - subtle separator color
-    return [NSColor separatorColor];
 }
 
 #pragma mark - Mouse Events
@@ -482,8 +413,8 @@ static CGFloat getHeaderFontSize() {
 
     // Group column resize handle
     if (_groupColumnWidth > 0) {
-        NSRect groupHandleRect = NSMakeRect(_groupColumnWidth - kResizeHandleWidth / 2, 0,
-                                            kResizeHandleWidth, getHeaderHeight());
+        NSRect groupHandleRect = NSMakeRect(_groupColumnWidth - fb2k_ui::kResizeHandleWidth / 2, 0,
+                                            fb2k_ui::kResizeHandleWidth, fb2k_ui::headerHeight(_headerSize));
         [self addCursorRect:groupHandleRect cursor:[NSCursor resizeLeftRightCursor]];
     }
 
@@ -491,8 +422,8 @@ static CGFloat getHeaderFontSize() {
 
     for (NSInteger i = 0; i < (NSInteger)_columns.count; i++) {
         CGFloat colWidth = _columns[i].width;
-        NSRect handleRect = NSMakeRect(x + colWidth - kResizeHandleWidth / 2, 0,
-                                       kResizeHandleWidth, getHeaderHeight());
+        NSRect handleRect = NSMakeRect(x + colWidth - fb2k_ui::kResizeHandleWidth / 2, 0,
+                                       fb2k_ui::kResizeHandleWidth, fb2k_ui::headerHeight(_headerSize));
         [self addCursorRect:handleRect cursor:[NSCursor resizeLeftRightCursor]];
         x += colWidth;
     }

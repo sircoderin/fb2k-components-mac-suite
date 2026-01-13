@@ -2,6 +2,21 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.3.0] - 2026-01-13
+
+### Added
+- **Glass background option**: Transparent background using NSVisualEffectView (requires restart)
+- **Shared UIStyles component**: Centralized styling for consistent look across components
+
+### Changed
+- Refactored to use shared UIStyles.h for colors, fonts, sizes, and glass setup
+- Glass mode respects macOS accessibility setting (reduce transparency)
+- Header bar uses glass-aware colors with proper accessibility fallback
+
+### Technical
+- UIStyles.h provides: SizeVariant enum, AccentMode enum, glass container helpers
+- ~95% coverage of shared component (unused: monospacedDigitFont, alternateRowColor, statusBarFont)
+
 ## [1.2.1] - 2026-01-11
 
 ### Changed
