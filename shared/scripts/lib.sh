@@ -98,11 +98,12 @@ do_build() {
     mkdir -p "$BUILD_DIR"
 
     # Build with xcodebuild
-    # Note: xcodebuild defaults to outputting to local build/ directory when run from CLI
+    # SYMROOT forces output to local build/ instead of DerivedData
     print_status "Building with xcodebuild..."
     xcodebuild -project "$PROJECT_NAME.xcodeproj" \
                -target "$PROJECT_NAME" \
                -configuration "$BUILD_CONFIG" \
+               SYMROOT="$BUILD_DIR" \
                build \
                2>&1 | grep -E "^(Build|Compile|Ld|Create|Touch|\*\*|error:|warning:)" || true
 
