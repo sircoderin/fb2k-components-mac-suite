@@ -29,7 +29,12 @@
     // Draw sharp/square selection like SimPlaylist instead of rounded default
     if (self.selectionHighlightStyle != NSTableViewSelectionHighlightStyleNone) {
         NSRect selectionRect = self.bounds;
-        [fb2k_ui::selectedBackgroundColor() setFill];
+        // Use glass-aware selection color for consistency
+        BOOL isGlass = [self isTransparentMode];
+        NSColor *selColor = isGlass
+            ? fb2k_ui::selectedBackgroundColorForGlass()
+            : fb2k_ui::selectedBackgroundColor();
+        [selColor setFill];
         NSRectFill(selectionRect);
     }
 }
