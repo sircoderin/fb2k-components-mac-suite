@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0] - 2026-01-22
+
+### Changed
+
+- **Custom Header Bar**: Replaced NSTableHeaderView with standalone NSView header bar matching SimPlaylist's architecture
+- **Glass/Vibrancy Refactor**: Uses shared UIStyles.h glass helpers (`createGlassContainer`, `configureScrollViewForGlass`, `configureTableViewForGlass`) instead of inline NSVisualEffectView setup
+- **Selection Colors**: Glass-aware selection colors via `selectedBackgroundColorForGlass()`
+
+### Fixed
+
+- **Drag & Drop from SimPlaylist**: Updated pasteboard decoder to handle new NSDictionary format (sourcePlaylist, indices, paths)
+- **Header Appearance**: Header now renders with correct dark appearance matching SimPlaylist
+
 ## [1.0.0] - 2025-12-29
 
 Initial release of Queue Manager for foobar2000 macOS.

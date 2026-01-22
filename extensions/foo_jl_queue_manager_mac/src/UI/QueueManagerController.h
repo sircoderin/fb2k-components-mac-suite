@@ -10,10 +10,12 @@
 #import <Cocoa/Cocoa.h>
 
 @class QueueItemWrapper;
+@class QueueHeaderView;
 
 @interface QueueManagerController : NSViewController <NSTableViewDataSource, NSTableViewDelegate>
 
 // Main views
+@property (nonatomic, strong) QueueHeaderView* headerView;
 @property (nonatomic, strong) NSScrollView* scrollView;
 @property (nonatomic, strong) NSTableView* tableView;
 @property (nonatomic, strong) NSTextField* statusBar;

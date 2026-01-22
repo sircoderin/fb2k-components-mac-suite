@@ -54,6 +54,6 @@ static const size_t kAvailableColumnsCount = sizeof(kAvailableColumns) / sizeof(
 static const int kMinWidth = 150;
 static const int kMinHeight = 100;
 static const int kStatusBarHeight = 22;
-// Note: kRowHeight moved to shared/UIStyles.h as fb2k_ui::kDefaultRowHeight
+// Note: Row/header heights now use fb2k_ui::rowHeight() and fb2k_ui::headerHeight() functions
 
 } // namespace queue_config
