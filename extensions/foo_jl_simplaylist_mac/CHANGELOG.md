@@ -6,16 +6,18 @@ All notable changes to SimPlaylist will be documented in this file.
 
 ### Added
 - **Glass background option**: Transparent background using NSVisualEffectView (requires restart)
+- **Custom Columns**: New preferences page (Display > SimPlaylist > Custom Columns) for user-defined columns with name, alignment, and title formatting pattern
+- **Column menu overhaul**: Flat list of built-in columns, SDK columns from components, and custom columns sections
 - **Shared UIStyles component**: Centralized styling for consistent look across components
 
 ### Changed
-- Refactored to use shared UIStyles.h for colors, fonts, sizes, and glass setup
+- Refactored to use shared UIStyles.h for colors and fonts
 - Glass mode respects macOS accessibility setting (reduce transparency)
-- Header bar uses glass-aware colors with proper accessibility fallback
+- "Edit Custom Columns..." menu item opens dedicated preferences page
+- Playback statistics (Play Count, First/Last Played, etc.) now sourced from SDK only
 
-### Technical
-- UIStyles.h provides: SizeVariant enum, AccentMode enum, glass container helpers
-- ~95% coverage of shared component (unused: monospacedDigitFont, alternateRowColor, statusBarFont)
+### Fixed
+- Album art blinking during fast scrolling (increased cache limits, always show placeholder while loading)
 
 ## [1.2.1] - 2026-01-11
 

@@ -66,6 +66,12 @@ typedef NS_ENUM(NSInteger, ColumnAlignment) {
 // Read columns dynamically from SDK playlistColumnProvider services
 + (NSArray<ColumnDefinition *> *)columnsFromSDKProviders;
 
+// User-defined custom columns (stored in SimPlaylist config)
++ (NSArray<ColumnDefinition *> *)customColumns;
++ (void)saveCustomColumns:(NSArray<ColumnDefinition *> *)columns;
++ (void)addCustomColumn:(ColumnDefinition *)column;
++ (void)removeCustomColumnAtIndex:(NSUInteger)index;
+
 // Parse columns from JSON string
 + (NSArray<ColumnDefinition *> *)columnsFromJSON:(NSString *)jsonString;
 

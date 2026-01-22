@@ -6,7 +6,8 @@
 #import "AlbumArtCache.h"
 
 // Maximum entries in key tracking sets (prevents unbounded memory growth)
-static const NSUInteger kMaxKeySetSize = 10000;
+// Increased to handle larger libraries without eviction-related blinking
+static const NSUInteger kMaxKeySetSize = 50000;
 
 @interface AlbumArtCache ()
 @property (nonatomic, strong) NSCache<NSString *, NSImage *> *imageCache;
@@ -37,7 +38,7 @@ static NSImage *_placeholderImage = nil;
     self = [super init];
     if (self) {
         _imageCache = [[NSCache alloc] init];
-        _imageCache.countLimit = 500;  // Max 500 images (increased to reduce eviction during scroll)
+        _imageCache.countLimit = 1000;  // Max 1000 images to reduce eviction during fast scroll
 
         _noImageKeys = [NSMutableSet set];     // Track keys with no album art
         _hasImageKeys = [NSMutableSet set];    // Track keys that have album art

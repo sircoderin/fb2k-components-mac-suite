@@ -1807,8 +1807,13 @@ static BOOL isRemotePath(const char *path) {
         return cached;
     }
 
-    // If not loading yet and not already known to have no image, start async load
-    if (![cache isLoadingKey:cacheKey] && ![cache hasNoImageForKey:cacheKey]) {
+    // Check if already known to have no image
+    if ([cache hasNoImageForKey:cacheKey]) {
+        return nil;  // No album art for this track
+    }
+
+    // Start async load if not already loading
+    if (![cache isLoadingKey:cacheKey]) {
         __weak SimPlaylistController *weakSelf = self;
         [cache loadImageForKey:cacheKey handle:handle completion:^(NSImage *image) {
             // Only trigger redraw if we actually got an image
@@ -1829,13 +1834,9 @@ static BOOL isRemotePath(const char *path) {
         }];
     }
 
-    // If we know this key has an image but it's evicted, return placeholder to avoid blink
-    // (consistent visual during reload vs showing nothing then image)
-    if ([cache hasKnownImageForKey:cacheKey]) {
-        return [AlbumArtCache placeholderImage];
-    }
-
-    return nil;  // First time load - view will draw inline placeholder
+    // Always return placeholder while loading to prevent blink
+    // (previously returned nil for first-time loads, causing flash when image appeared)
+    return [AlbumArtCache placeholderImage];
 }
 
 - (void)performDelayedRedraw {
@@ -1954,92 +1955,76 @@ static BOOL isRemotePath(const char *path) {
 - (void)headerBar:(SimPlaylistHeaderBar *)bar showColumnMenuAtPoint:(NSPoint)screenPoint {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Columns"];
 
-    // Get available column templates (hardcoded)
+    // Get available column templates (basic columns)
     NSArray<ColumnDefinition *> *templates = [ColumnDefinition availableColumnTemplates];
 
-    // Get columns from SDK providers (dynamic - from other components)
+    // Get columns from SDK providers (playback stats from components)
     NSArray<ColumnDefinition *> *sdkColumns = [ColumnDefinition columnsFromSDKProviders];
 
-    // Combine all columns for lookup by index
-    NSMutableArray<ColumnDefinition *> *allColumns = [NSMutableArray arrayWithArray:templates];
-    [allColumns addObjectsFromArray:sdkColumns];
-    _availableColumnTemplates = allColumns;  // Store for use in columnMenuItemClicked:
+    // Get user-defined custom columns
+    NSArray<ColumnDefinition *> *customColumns = [ColumnDefinition customColumns];
 
-    // Build set of currently visible column names for quick lookup
+    // Build set of currently visible column names
     NSMutableSet<NSString *> *visibleColumnNames = [NSMutableSet set];
     for (ColumnDefinition *col in _columns) {
         [visibleColumnNames addObject:col.name];
     }
 
-    // Also track names we've already added to avoid duplicates with SDK columns
-    NSMutableSet<NSString *> *addedNames = [NSMutableSet set];
+    // Combine all columns for lookup by index (templates + sdk + custom)
+    NSMutableArray<ColumnDefinition *> *allColumns = [NSMutableArray arrayWithArray:templates];
+    [allColumns addObjectsFromArray:sdkColumns];
+    [allColumns addObjectsFromArray:customColumns];
+    _availableColumnTemplates = allColumns;
 
-    // Standard columns (first 19 items - includes #, BPM, Key, Sample Rate)
-    NSInteger standardColumnCount = 19;
-    for (NSInteger i = 0; i < MIN(standardColumnCount, (NSInteger)templates.count); i++) {
-        ColumnDefinition *colTemplate = templates[i];
-        [addedNames addObject:colTemplate.name];
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:colTemplate.name
+    // Helper to add section header
+    void (^addSectionHeader)(NSString *) = ^(NSString *title) {
+        [menu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
+        header.enabled = NO;
+        [menu addItem:header];
+    };
+
+    // Helper to add column item
+    void (^addColumnItem)(ColumnDefinition *, NSInteger) = ^(ColumnDefinition *col, NSInteger tag) {
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:col.name
                                                       action:@selector(columnMenuItemClicked:)
                                                keyEquivalent:@""];
         item.target = self;
-        item.tag = i;
-        item.state = [visibleColumnNames containsObject:colTemplate.name] ? NSControlStateValueOn : NSControlStateValueOff;
+        item.tag = tag;
+        item.state = [visibleColumnNames containsObject:col.name] ? NSControlStateValueOn : NSControlStateValueOff;
         [menu addItem:item];
+    };
+
+    // All basic columns in one section (no header for first section)
+    for (NSInteger i = 0; i < (NSInteger)templates.count; i++) {
+        addColumnItem(templates[i], i);
     }
 
-    // Separator before playback statistics
-    if (templates.count > standardColumnCount) {
-        [menu addItem:[NSMenuItem separatorItem]];
-
-        // Playback statistics columns
-        for (NSInteger i = standardColumnCount; i < (NSInteger)templates.count; i++) {
-            ColumnDefinition *colTemplate = templates[i];
-            [addedNames addObject:colTemplate.name];
-            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:colTemplate.name
-                                                          action:@selector(columnMenuItemClicked:)
-                                                   keyEquivalent:@""];
-            item.target = self;
-            item.tag = i;
-            item.state = [visibleColumnNames containsObject:colTemplate.name] ? NSControlStateValueOn : NSControlStateValueOff;
-            [menu addItem:item];
-        }
-    }
-
-    // SDK columns (from playlistColumnProvider services - dynamic)
+    // SDK columns from components (playback stats, etc.)
+    NSInteger templateCount = templates.count;
     if (sdkColumns.count > 0) {
-        [menu addItem:[NSMenuItem separatorItem]];
-
-        // Add a title item
-        NSMenuItem *sdkTitle = [[NSMenuItem alloc] initWithTitle:@"From Components:" action:nil keyEquivalent:@""];
-        sdkTitle.enabled = NO;
-        [menu addItem:sdkTitle];
-
-        NSInteger templateCount = templates.count;
+        addSectionHeader(@"From Components");
         for (NSInteger i = 0; i < (NSInteger)sdkColumns.count; i++) {
-            ColumnDefinition *colTemplate = sdkColumns[i];
-
-            // Skip if already added from hardcoded templates
-            if ([addedNames containsObject:colTemplate.name]) continue;
-            [addedNames addObject:colTemplate.name];
-
-            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:colTemplate.name
-                                                          action:@selector(columnMenuItemClicked:)
-                                                   keyEquivalent:@""];
-            item.target = self;
-            item.tag = templateCount + i;  // Offset by template count
-            item.state = [visibleColumnNames containsObject:colTemplate.name] ? NSControlStateValueOn : NSControlStateValueOff;
-            [menu addItem:item];
+            addColumnItem(sdkColumns[i], templateCount + i);
         }
     }
 
-    // "More..." item for custom columns
+    // Custom columns defined in SimPlaylist
+    NSInteger sdkOffset = templateCount + sdkColumns.count;
+    if (customColumns.count > 0) {
+        addSectionHeader(@"Custom");
+        for (NSInteger i = 0; i < (NSInteger)customColumns.count; i++) {
+            addColumnItem(customColumns[i], sdkOffset + i);
+        }
+    }
+
+    // Edit Custom Columns... opens preferences page
     [menu addItem:[NSMenuItem separatorItem]];
-    NSMenuItem *moreItem = [[NSMenuItem alloc] initWithTitle:@"More..."
-                                                      action:@selector(showColumnConfiguration:)
-                                               keyEquivalent:@""];
-    moreItem.target = self;
-    [menu addItem:moreItem];
+    NSMenuItem *editCustomItem = [[NSMenuItem alloc] initWithTitle:@"Edit Custom Columns..."
+                                                            action:@selector(showCustomColumnsPreferences:)
+                                                     keyEquivalent:@""];
+    editCustomItem.target = self;
+    [menu addItem:editCustomItem];
 
     [menu popUpMenuPositioningItem:nil atLocation:screenPoint inView:nil];
 }
@@ -2089,9 +2074,19 @@ static BOOL isRemotePath(const char *path) {
     simplaylist_config::setConfigString(simplaylist_config::kColumns, [json UTF8String]);
 }
 
-- (void)showColumnConfiguration:(id)sender {
-    // Future: show full column configuration dialog
-    // For now just do nothing - placeholder for "More..." menu item
+// GUID for custom columns preferences page
+static const GUID guid_simplaylist_custom_columns =
+    { 0x7b8e1c32, 0x4a6d, 0x5e43, { 0x8f, 0x2b, 0x6d, 0x9a, 0x4e, 0x7f, 0x5c, 0x3b } };
+
+- (void)showCustomColumnsPreferences:(id)sender {
+    @try {
+        auto uiControl = ui_control::get();
+        if (uiControl.is_valid()) {
+            uiControl->show_preferences(guid_simplaylist_custom_columns);
+        }
+    } @catch (...) {
+        // Silently fail if preferences can't be opened
+    }
 }
 
 #pragma mark - Drag & Drop

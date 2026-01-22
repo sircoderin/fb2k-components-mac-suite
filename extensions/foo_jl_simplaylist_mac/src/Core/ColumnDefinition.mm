@@ -219,37 +219,21 @@
                                  pattern:@"%filesize%"
                                    width:60
                                alignment:ColumnAlignmentRight],
-
-        // Playback statistics (second group - after separator)
-        [ColumnDefinition columnWithName:@"Play Count"
-                                 pattern:@"%play_count%"
-                                   width:60
-                               alignment:ColumnAlignmentRight],
-        [ColumnDefinition columnWithName:@"First Played"
-                                 pattern:@"%first_played%"
-                                   width:120
-                               alignment:ColumnAlignmentLeft],
-        [ColumnDefinition columnWithName:@"Last Played"
-                                 pattern:@"%last_played%"
-                                   width:120
-                               alignment:ColumnAlignmentLeft],
-        [ColumnDefinition columnWithName:@"Date Added"
-                                 pattern:@"%added%"
-                                   width:120
-                               alignment:ColumnAlignmentLeft],
-        [ColumnDefinition columnWithName:@"Rating"
-                                 pattern:@"%rating%"
-                                   width:60
-                               alignment:ColumnAlignmentCenter
-                              autoResize:NO],
+        // Note: Play Count, First Played, Last Played, Date Added, Rating
+        // are provided by SDK playlistColumnProvider, not hardcoded here
     ];
 }
 
 + (NSArray<ColumnDefinition *> *)columnsFromSDKProviders {
+    // Returns columns from SDK playlistColumnProvider services
+    // (e.g., playback statistics: Play Count, First/Last Played, Date Added, Rating)
+    // Note: foobar's Custom Playlist Columns are stored in binary cfg_var blob - not accessible
+
     NSMutableArray<ColumnDefinition *> *columns = [NSMutableArray array];
     NSMutableSet<NSString *> *seenNames = [NSMutableSet set];
 
     @try {
+
         // Enumerate all playlistColumnProvider services
         for (auto provider : fb2k::playlistColumnProvider::enumerate()) {
             size_t numCols = provider->numColumns();
@@ -289,6 +273,44 @@
     }
 
     return columns;
+}
+
+#pragma mark - Custom Columns
+
++ (NSArray<ColumnDefinition *> *)customColumns {
+    std::string jsonStr = simplaylist_config::getConfigString(
+        simplaylist_config::kCustomColumns,
+        simplaylist_config::getDefaultCustomColumnsJSON()
+    );
+
+    if (jsonStr.empty()) {
+        return @[];
+    }
+
+    NSString *json = [NSString stringWithUTF8String:jsonStr.c_str()];
+    return [self columnsFromJSON:json];
+}
+
++ (void)saveCustomColumns:(NSArray<ColumnDefinition *> *)columns {
+    NSString *json = [self columnsToJSON:columns];
+    simplaylist_config::setConfigString(
+        simplaylist_config::kCustomColumns,
+        json.UTF8String
+    );
+}
+
++ (void)addCustomColumn:(ColumnDefinition *)column {
+    NSMutableArray *columns = [[self customColumns] mutableCopy];
+    [columns addObject:column];
+    [self saveCustomColumns:columns];
+}
+
++ (void)removeCustomColumnAtIndex:(NSUInteger)index {
+    NSMutableArray *columns = [[self customColumns] mutableCopy];
+    if (index < columns.count) {
+        [columns removeObjectAtIndex:index];
+        [self saveCustomColumns:columns];
+    }
 }
 
 + (NSArray<ColumnDefinition *> *)columnsFromJSON:(NSString *)jsonString {

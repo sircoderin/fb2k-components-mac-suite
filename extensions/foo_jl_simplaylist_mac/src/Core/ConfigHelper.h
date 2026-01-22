@@ -21,6 +21,7 @@ static const char* const kActivePresetIndex = "active_preset_index";
 // Column configuration keys
 static const char* const kColumns = "columns";
 static const char* const kColumnOrder = "column_order";
+static const char* const kCustomColumns = "custom_columns";  // User-defined column templates
 
 // Appearance keys
 static const char* const kRowHeight = "row_height";
@@ -198,6 +199,13 @@ inline const char* getDefaultColumnsJSON() {
     {"name": "Artist", "pattern": "%artist%", "width": 150, "alignment": "left", "auto_resize": true},
     {"name": "Duration", "pattern": "%length%", "width": 50, "alignment": "right"}
   ]
+})JSON";
+}
+
+// Default custom columns JSON (empty array)
+inline const char* getDefaultCustomColumnsJSON() {
+    return R"JSON({
+  "columns": []
 })JSON";
 }
 
