@@ -253,28 +253,30 @@ static NSImage *_placeholderImage = nil;
 
             if (image) {
                 [strongSelf->_imageCache setObject:image forKey:keyCopy];
-                // Bounded LRU insertion - evict oldest if at capacity
+                // Bounded LRU insertion - batch evict oldest 10% to amortize O(n) removal
                 if (![strongSelf->_hasImageKeys containsObject:keyCopy]) {
                     if (strongSelf->_hasImageKeys.count >= kMaxKeySetSize) {
-                        NSString *oldest = strongSelf->_hasImageKeyOrder.firstObject;
-                        if (oldest) {
-                            [strongSelf->_hasImageKeys removeObject:oldest];
-                            [strongSelf->_hasImageKeyOrder removeObjectAtIndex:0];
+                        NSUInteger evictCount = kMaxKeySetSize / 10;
+                        NSArray *toEvict = [strongSelf->_hasImageKeyOrder subarrayWithRange:NSMakeRange(0, evictCount)];
+                        for (NSString *key in toEvict) {
+                            [strongSelf->_hasImageKeys removeObject:key];
                         }
+                        [strongSelf->_hasImageKeyOrder removeObjectsInRange:NSMakeRange(0, evictCount)];
                     }
                     [strongSelf->_hasImageKeys addObject:keyCopy];
                     [strongSelf->_hasImageKeyOrder addObject:keyCopy];
                 }
             } else {
                 // Mark this key as having no image to prevent repeated load attempts
-                // Bounded LRU insertion - evict oldest if at capacity
+                // Bounded LRU insertion - batch evict oldest 10% to amortize O(n) removal
                 if (![strongSelf->_noImageKeys containsObject:keyCopy]) {
                     if (strongSelf->_noImageKeys.count >= kMaxKeySetSize) {
-                        NSString *oldest = strongSelf->_noImageKeyOrder.firstObject;
-                        if (oldest) {
-                            [strongSelf->_noImageKeys removeObject:oldest];
-                            [strongSelf->_noImageKeyOrder removeObjectAtIndex:0];
+                        NSUInteger evictCount = kMaxKeySetSize / 10;
+                        NSArray *toEvict = [strongSelf->_noImageKeyOrder subarrayWithRange:NSMakeRange(0, evictCount)];
+                        for (NSString *key in toEvict) {
+                            [strongSelf->_noImageKeys removeObject:key];
                         }
+                        [strongSelf->_noImageKeyOrder removeObjectsInRange:NSMakeRange(0, evictCount)];
                     }
                     [strongSelf->_noImageKeys addObject:keyCopy];
                     [strongSelf->_noImageKeyOrder addObject:keyCopy];
