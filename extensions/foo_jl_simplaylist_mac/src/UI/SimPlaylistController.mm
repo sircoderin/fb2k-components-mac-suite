@@ -283,6 +283,8 @@ struct ReloadOperation {
     metadb_handle_list _contextMenuHandles;
     // Active reload operations for progress tracking
     std::vector<ReloadOperation> _reloadOperations;
+    // Pre-compiled title format scripts for columns (rebuilt when columns change)
+    std::vector<titleformat_object::ptr> _compiledColumnScripts;
 }
 @property (nonatomic, strong) SimPlaylistView *playlistView;
 @property (nonatomic, strong) SimPlaylistHeaderBar *headerBar;
@@ -310,6 +312,7 @@ struct ReloadOperation {
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _columns = [ColumnDefinition defaultColumns];
+        [self recompileColumnScripts];
         _groupPresets = [GroupPreset defaultPresets];
         _activePresetIndex = 0;
         _currentPlaylistIndex = -1;
@@ -822,8 +825,9 @@ static NSInteger _groupDetectionGeneration = 0;
     NSInteger anchorIndex = anchorNum ? [anchorNum integerValue] : 0;
 
     // Only detect groups up to anchor + buffer (for visible area)
-    // This is O(anchor) instead of O(all tracks) - much faster for large playlists
-    t_size detectUpTo = MIN(itemCount, (t_size)(anchorIndex + 200));
+    // Cap at 5000 to prevent main thread blocking for deep scroll positions
+    static const t_size kMaxSyncDetect = 5000;
+    t_size detectUpTo = MIN(itemCount, MIN((t_size)(anchorIndex + 200), kMaxSyncDetect));
 
     // Increment generation to cancel any in-progress async detection
     NSInteger currentGeneration = ++_groupDetectionGeneration;
@@ -875,6 +879,7 @@ static NSInteger _groupDetectionGeneration = 0;
     pfc::string8 formattedSubgroup;
 
     for (t_size i = 0; i < detectUpTo && i < handles.get_count(); i++) {
+        @autoreleasepool {
         handles[i]->format_title(nullptr, formattedHeader, headerScript, nullptr);
 
         BOOL isNewGroup = (i == 0 || strcmp(formattedHeader.c_str(), currentHeader.c_str()) != 0);
@@ -893,6 +898,7 @@ static NSInteger _groupDetectionGeneration = 0;
             subgroupDetector.shouldAddSubgroup(formattedSubgroup, isNewGroup,
                                                 subgroupStarts, subgroupHeaders, i);
         }
+        } // @autoreleasepool
     }
 
     // Set partial data immediately - enough for visible area
@@ -1853,6 +1859,16 @@ static BOOL isRemotePath(const char *path) {
     [_headerBar setNeedsDisplay:YES];
 }
 
+- (void)recompileColumnScripts {
+    _compiledColumnScripts.clear();
+    _compiledColumnScripts.reserve(_columns.count);
+    for (ColumnDefinition *col in _columns) {
+        _compiledColumnScripts.push_back(
+            simplaylist::TitleFormatHelper::compile([col.pattern UTF8String])
+        );
+    }
+}
+
 - (NSArray<NSString *> *)playlistView:(SimPlaylistView *)view columnValuesForPlaylistIndex:(NSInteger)playlistIndex {
     // Lazy load column values for a track - only called when drawing visible rows
     auto pm = playlist_manager::get();
@@ -1862,23 +1878,14 @@ static BOOL isRemotePath(const char *path) {
     // Check if playlistIndex is within valid range
     t_size playlistItemCount = pm->playlist_get_item_count(activePlaylist);
     if (playlistIndex < 0 || (t_size)playlistIndex >= playlistItemCount) {
-        FILE *f = fopen("/tmp/simplaylist_column_debug.log", "a");
-        if (f) {
-            fprintf(f, "INVALID INDEX: playlistIndex=%ld, playlistItemCount=%lu\n",
-                    (long)playlistIndex, (unsigned long)playlistItemCount);
-            fclose(f);
-        }
         return nil;
     }
 
-    // Format column values using playlist context (supports %list_index%, etc.)
-    NSMutableArray<NSString *> *columnValues = [NSMutableArray array];
-    for (ColumnDefinition *col in _columns) {
-        auto script = simplaylist::TitleFormatHelper::compileWithCache(
-            std::string([col.pattern UTF8String])
-        );
+    // Format column values using pre-compiled scripts
+    NSMutableArray<NSString *> *columnValues = [NSMutableArray arrayWithCapacity:_compiledColumnScripts.size()];
+    for (size_t i = 0; i < _compiledColumnScripts.size(); i++) {
         std::string value = simplaylist::TitleFormatHelper::formatWithPlaylistContext(
-            activePlaylist, playlistIndex, script);
+            activePlaylist, playlistIndex, _compiledColumnScripts[i]);
         [columnValues addObject:[NSString stringWithUTF8String:value.c_str()]];
     }
 
@@ -1923,6 +1930,7 @@ static BOOL isRemotePath(const char *path) {
 
     [mutableColumns insertObject:movedCol atIndex:insertIndex];
     _columns = [mutableColumns copy];
+    [self recompileColumnScripts];
 
     // Update both views
     _headerBar.columns = _columns;
@@ -2061,6 +2069,7 @@ static BOOL isRemotePath(const char *path) {
     }
 
     _columns = newColumns;
+    [self recompileColumnScripts];
 
     // Update UI
     _headerBar.columns = _columns;

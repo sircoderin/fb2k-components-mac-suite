@@ -61,26 +61,23 @@ static NSImage *_placeholderImage = nil;
     if (!_placeholderImage) {
         // Create a simple placeholder with music note icon
         NSSize size = NSMakeSize(128, 128);
-        _placeholderImage = [[NSImage alloc] initWithSize:size];
+        _placeholderImage = [NSImage imageWithSize:size flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+            // Background
+            [[NSColor colorWithWhite:0.2 alpha:1.0] setFill];
+            NSRectFill(dstRect);
 
-        [_placeholderImage lockFocus];
-
-        // Background
-        [[NSColor colorWithWhite:0.2 alpha:1.0] setFill];
-        NSRectFill(NSMakeRect(0, 0, size.width, size.height));
-
-        // Draw music note symbol
-        NSString *musicNote = @"\u266B";  // Musical note
-        NSDictionary *attrs = @{
-            NSFontAttributeName: [NSFont systemFontOfSize:48 weight:NSFontWeightLight],
-            NSForegroundColorAttributeName: [NSColor colorWithWhite:0.5 alpha:1.0]
-        };
-        NSSize textSize = [musicNote sizeWithAttributes:attrs];
-        NSPoint point = NSMakePoint((size.width - textSize.width) / 2,
-                                    (size.height - textSize.height) / 2);
-        [musicNote drawAtPoint:point withAttributes:attrs];
-
-        [_placeholderImage unlockFocus];
+            // Draw music note symbol
+            NSString *musicNote = @"\u266B";
+            NSDictionary *attrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:48 weight:NSFontWeightLight],
+                NSForegroundColorAttributeName: [NSColor colorWithWhite:0.5 alpha:1.0]
+            };
+            NSSize textSize = [musicNote sizeWithAttributes:attrs];
+            NSPoint point = NSMakePoint((dstRect.size.width - textSize.width) / 2,
+                                        (dstRect.size.height - textSize.height) / 2);
+            [musicNote drawAtPoint:point withAttributes:attrs];
+            return YES;
+        }];
     }
     return _placeholderImage;
 }
@@ -162,6 +159,7 @@ static NSImage *_placeholderImage = nil;
 
     // Add to load queue - process entirely on background thread
     [_loadQueue addOperationWithBlock:^{
+        @autoreleasepool {
         NSImage *image = nil;
 
         // First try: look for cover image files in the same directory (fast, no SDK needed)
@@ -241,47 +239,52 @@ static NSImage *_placeholderImage = nil;
         }
 
         // Update cache and call completions on main thread
+        __weak typeof(self) weakSelf = self;
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self->_pendingLock lock];
-            [self->_pendingLoads removeObject:keyCopy];
-            NSArray *completions = [self->_pendingCompletions[keyCopy] copy];
-            [self->_pendingCompletions removeObjectForKey:keyCopy];
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+
+            [strongSelf->_pendingLock lock];
+            [strongSelf->_pendingLoads removeObject:keyCopy];
+            NSArray *completions = [strongSelf->_pendingCompletions[keyCopy] copy];
+            [strongSelf->_pendingCompletions removeObjectForKey:keyCopy];
 
             if (image) {
-                [self->_imageCache setObject:image forKey:keyCopy];
+                [strongSelf->_imageCache setObject:image forKey:keyCopy];
                 // Bounded LRU insertion - evict oldest if at capacity
-                if (![self->_hasImageKeys containsObject:keyCopy]) {
-                    if (self->_hasImageKeys.count >= kMaxKeySetSize) {
-                        NSString *oldest = self->_hasImageKeyOrder.firstObject;
+                if (![strongSelf->_hasImageKeys containsObject:keyCopy]) {
+                    if (strongSelf->_hasImageKeys.count >= kMaxKeySetSize) {
+                        NSString *oldest = strongSelf->_hasImageKeyOrder.firstObject;
                         if (oldest) {
-                            [self->_hasImageKeys removeObject:oldest];
-                            [self->_hasImageKeyOrder removeObjectAtIndex:0];
+                            [strongSelf->_hasImageKeys removeObject:oldest];
+                            [strongSelf->_hasImageKeyOrder removeObjectAtIndex:0];
                         }
                     }
-                    [self->_hasImageKeys addObject:keyCopy];
-                    [self->_hasImageKeyOrder addObject:keyCopy];
+                    [strongSelf->_hasImageKeys addObject:keyCopy];
+                    [strongSelf->_hasImageKeyOrder addObject:keyCopy];
                 }
             } else {
                 // Mark this key as having no image to prevent repeated load attempts
                 // Bounded LRU insertion - evict oldest if at capacity
-                if (![self->_noImageKeys containsObject:keyCopy]) {
-                    if (self->_noImageKeys.count >= kMaxKeySetSize) {
-                        NSString *oldest = self->_noImageKeyOrder.firstObject;
+                if (![strongSelf->_noImageKeys containsObject:keyCopy]) {
+                    if (strongSelf->_noImageKeys.count >= kMaxKeySetSize) {
+                        NSString *oldest = strongSelf->_noImageKeyOrder.firstObject;
                         if (oldest) {
-                            [self->_noImageKeys removeObject:oldest];
-                            [self->_noImageKeyOrder removeObjectAtIndex:0];
+                            [strongSelf->_noImageKeys removeObject:oldest];
+                            [strongSelf->_noImageKeyOrder removeObjectAtIndex:0];
                         }
                     }
-                    [self->_noImageKeys addObject:keyCopy];
-                    [self->_noImageKeyOrder addObject:keyCopy];
+                    [strongSelf->_noImageKeys addObject:keyCopy];
+                    [strongSelf->_noImageKeyOrder addObject:keyCopy];
                 }
             }
-            [self->_pendingLock unlock];
+            [strongSelf->_pendingLock unlock];
 
             for (void (^block)(NSImage *) in completions) {
                 block(image);
             }
         });
+        } // @autoreleasepool
     }];
 }
 
@@ -293,17 +296,33 @@ static NSImage *_placeholderImage = nil;
         return sourceImage;  // Already small enough
     }
 
-    NSSize newSize = NSMakeSize(originalSize.width * scale, originalSize.height * scale);
-    NSImage *resizedImage = [[NSImage alloc] initWithSize:newSize];
+    NSSize newSize = NSMakeSize(round(originalSize.width * scale), round(originalSize.height * scale));
 
-    [resizedImage lockFocus];
-    [[NSGraphicsContext currentContext] setImageInterpolation:NSImageInterpolationHigh];
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc]
+        initWithBitmapDataPlanes:NULL
+                      pixelsWide:(NSInteger)newSize.width
+                      pixelsHigh:(NSInteger)newSize.height
+                   bitsPerSample:8
+                 samplesPerPixel:4
+                        hasAlpha:YES
+                        isPlanar:NO
+                  colorSpaceName:NSCalibratedRGBColorSpace
+                     bytesPerRow:0
+                    bitsPerPixel:0];
+    rep.size = newSize;
+
+    [NSGraphicsContext saveGraphicsState];
+    NSGraphicsContext *ctx = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+    [NSGraphicsContext setCurrentContext:ctx];
+    ctx.imageInterpolation = NSImageInterpolationHigh;
     [sourceImage drawInRect:NSMakeRect(0, 0, newSize.width, newSize.height)
                    fromRect:NSZeroRect
                   operation:NSCompositingOperationSourceOver
                    fraction:1.0];
-    [resizedImage unlockFocus];
+    [NSGraphicsContext restoreGraphicsState];
 
+    NSImage *resizedImage = [[NSImage alloc] initWithSize:newSize];
+    [resizedImage addRepresentation:rep];
     return resizedImage;
 }
 
