@@ -32,19 +32,19 @@ extern NSPasteboardType const SimPlaylistPasteboardType;
 
 // SPARSE GROUP MODEL - O(G) storage for G groups instead of O(N) for N tracks
 @property (nonatomic, assign) NSInteger itemCount;  // Total playlist items
-@property (nonatomic, strong) NSArray<NSNumber *> *groupStarts;  // Playlist indices where groups start
-@property (nonatomic, strong) NSArray<NSString *> *groupHeaders;  // Header text per group
-@property (nonatomic, strong) NSArray<NSString *> *groupArtKeys;  // Album art cache key per group
-@property (nonatomic, strong) NSArray<NSNumber *> *groupPaddingRows;  // Extra padding rows per group for min height
+@property (nonatomic, copy) NSArray<NSNumber *> *groupStarts;  // Playlist indices where groups start
+@property (nonatomic, copy) NSArray<NSString *> *groupHeaders;  // Header text per group
+@property (nonatomic, copy) NSArray<NSString *> *groupArtKeys;  // Album art cache key per group
+@property (nonatomic, copy) NSArray<NSNumber *> *groupPaddingRows;  // Extra padding rows per group for min height
 @property (nonatomic, assign) NSInteger totalPaddingRowsCached;  // Pre-computed sum of all padding rows
-@property (nonatomic, strong) NSArray<NSNumber *> *cumulativePaddingCache;  // Pre-computed cumulative padding before each group
+@property (nonatomic, copy) NSArray<NSNumber *> *cumulativePaddingCache;  // Pre-computed cumulative padding before each group
 
 // SUBGROUPS - playlist indices where subgroups start, header text per subgroup
-@property (nonatomic, strong) NSArray<NSNumber *> *subgroupStarts;  // Playlist indices where subgroups start
-@property (nonatomic, strong) NSArray<NSString *> *subgroupHeaders;  // Header text per subgroup
-@property (nonatomic, strong) NSArray<NSNumber *> *subgroupCountPerGroup;  // Pre-computed subgroup count per group
-@property (nonatomic, strong) NSIndexSet *subgroupRowSet;  // Pre-computed subgroup row numbers for O(1) lookup and O(log n) range counting
-@property (nonatomic, strong) NSDictionary<NSNumber *, NSNumber *> *subgroupRowToIndex;  // Map row -> subgroup index
+@property (nonatomic, copy) NSArray<NSNumber *> *subgroupStarts;  // Playlist indices where subgroups start
+@property (nonatomic, copy) NSArray<NSString *> *subgroupHeaders;  // Header text per subgroup
+@property (nonatomic, copy) NSArray<NSNumber *> *subgroupCountPerGroup;  // Pre-computed subgroup count per group
+@property (nonatomic, copy) NSIndexSet *subgroupRowSet;  // Pre-computed subgroup row numbers for O(1) lookup and O(log n) range counting
+@property (nonatomic, copy) NSDictionary<NSNumber *, NSNumber *> *subgroupRowToIndex;  // Map row -> subgroup index
 
 // Formatted column values cache (lazily populated during draw, auto-evicts under memory pressure)
 @property (nonatomic, strong) NSCache<NSNumber *, NSArray<NSString *> *> *formattedValuesCache;

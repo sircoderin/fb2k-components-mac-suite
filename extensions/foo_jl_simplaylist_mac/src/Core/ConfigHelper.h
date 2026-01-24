@@ -88,7 +88,9 @@ inline int64_t getConfigInt(const char* key, int64_t defaultValue) {
         if (store.is_valid()) {
             return store->getConfigInt(getFullKey(key).c_str(), defaultValue);
         }
-    } catch (...) {}
+    } catch (...) {
+        FB2K_console_formatter() << "[SimPlaylist] Config read error for key: " << key;
+    }
     return defaultValue;
 }
 
@@ -98,7 +100,9 @@ inline void setConfigInt(const char* key, int64_t value) {
         if (store.is_valid()) {
             store->setConfigInt(getFullKey(key).c_str(), value);
         }
-    } catch (...) {}
+    } catch (...) {
+        FB2K_console_formatter() << "[SimPlaylist] Config write error for key: " << key;
+    }
 }
 
 inline bool getConfigBool(const char* key, bool defaultValue) {
@@ -130,7 +134,7 @@ inline std::string getConfigString(const char* key, const char* defaultValue) {
             return std::string(cstr);
         }
     } catch (...) {
-        // Silently handle any exceptions
+        FB2K_console_formatter() << "[SimPlaylist] Config read error for key: " << key;
     }
     return defaultValue ? defaultValue : "";
 }
@@ -141,7 +145,9 @@ inline void setConfigString(const char* key, const char* value) {
         if (store.is_valid()) {
             store->setConfigString(getFullKey(key).c_str(), value);
         }
-    } catch (...) {}
+    } catch (...) {
+        FB2K_console_formatter() << "[SimPlaylist] Config write error for key: " << key;
+    }
 }
 
 // Default group presets JSON
