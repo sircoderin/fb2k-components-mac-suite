@@ -8,11 +8,10 @@
 #import "PlaylistCallbacks.h"
 #import "../UI/SimPlaylistController.h"
 #import <mutex>
-#import <vector>
 
-// Global controller storage
+// Global controller storage - NSHashTable with weak memory properly supports ARC zeroing
 static std::mutex g_controllersMutex;
-static std::vector<__weak SimPlaylistController*> g_controllers;
+static NSHashTable<SimPlaylistController *> *g_controllers;
 
 // Callback manager implementation
 SimPlaylistCallbackManager& SimPlaylistCallbackManager::instance() {
@@ -22,29 +21,22 @@ SimPlaylistCallbackManager& SimPlaylistCallbackManager::instance() {
 
 void SimPlaylistCallbackManager::registerController(SimPlaylistController* controller) {
     std::lock_guard<std::mutex> lock(g_controllersMutex);
-    for (const auto& weak : g_controllers) {
-        if (weak == controller) return;
+    if (!g_controllers) {
+        g_controllers = [NSHashTable weakObjectsHashTable];
     }
-    g_controllers.push_back(controller);
+    [g_controllers addObject:controller];
 }
 
 void SimPlaylistCallbackManager::unregisterController(SimPlaylistController* controller) {
     std::lock_guard<std::mutex> lock(g_controllersMutex);
-    g_controllers.erase(
-        std::remove_if(g_controllers.begin(), g_controllers.end(),
-            [controller](const __weak SimPlaylistController* weak) {
-                return weak == nil || weak == controller;
-            }),
-        g_controllers.end()
-    );
+    [g_controllers removeObject:controller];
 }
 
 void SimPlaylistCallbackManager::onPlaylistSwitched() {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handlePlaylistSwitched];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handlePlaylistSwitched];
         }
     });
 }
@@ -54,9 +46,8 @@ void SimPlaylistCallbackManager::onItemsAdded(t_size base, t_size count) {
     NSInteger cnt = count;
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handleItemsAdded:b count:cnt];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handleItemsAdded:b count:cnt];
         }
     });
 }
@@ -64,9 +55,8 @@ void SimPlaylistCallbackManager::onItemsAdded(t_size base, t_size count) {
 void SimPlaylistCallbackManager::onItemsRemoved() {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handleItemsRemoved];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handleItemsRemoved];
         }
     });
 }
@@ -74,9 +64,8 @@ void SimPlaylistCallbackManager::onItemsRemoved() {
 void SimPlaylistCallbackManager::onItemsReordered() {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handleItemsReordered];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handleItemsReordered];
         }
     });
 }
@@ -84,9 +73,8 @@ void SimPlaylistCallbackManager::onItemsReordered() {
 void SimPlaylistCallbackManager::onSelectionChanged() {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handleSelectionChanged];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handleSelectionChanged];
         }
     });
 }
@@ -96,9 +84,8 @@ void SimPlaylistCallbackManager::onFocusChanged(t_size from, t_size to) {
     NSInteger t = (to == SIZE_MAX) ? -1 : to;
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handleFocusChanged:f to:t];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handleFocusChanged:f to:t];
         }
     });
 }
@@ -106,9 +93,8 @@ void SimPlaylistCallbackManager::onFocusChanged(t_size from, t_size to) {
 void SimPlaylistCallbackManager::onItemsModified() {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handleItemsModified];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handleItemsModified];
         }
     });
 }
@@ -116,9 +102,8 @@ void SimPlaylistCallbackManager::onItemsModified() {
 void SimPlaylistCallbackManager::onPlaybackNewTrack(metadb_handle_ptr track) {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handlePlaybackNewTrack:track];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handlePlaybackNewTrack:track];
         }
     });
 }
@@ -126,9 +111,8 @@ void SimPlaylistCallbackManager::onPlaybackNewTrack(metadb_handle_ptr track) {
 void SimPlaylistCallbackManager::onPlaybackStopped() {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
-        for (__weak SimPlaylistController* weak : g_controllers) {
-            SimPlaylistController* c = weak;
-            if (c) [c handlePlaybackStopped];
+        for (SimPlaylistController *c in g_controllers) {
+            [c handlePlaybackStopped];
         }
     });
 }
