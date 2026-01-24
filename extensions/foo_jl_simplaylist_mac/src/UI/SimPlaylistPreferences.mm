@@ -222,7 +222,7 @@
     displayContentY += rowHeight + 4;
 
     // Glass Background
-    _glassBackgroundCheckbox = [NSButton checkboxWithTitle:@"Glass background (requires restart)"
+    _glassBackgroundCheckbox = [NSButton checkboxWithTitle:@"Glass background"
                                                     target:self
                                                     action:@selector(glassBackgroundChanged:)];
     _glassBackgroundCheckbox.frame = NSMakeRect(boxMargin + labelWidth, displayContentY, 280, 20);
