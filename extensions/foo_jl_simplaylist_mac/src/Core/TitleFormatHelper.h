@@ -32,6 +32,11 @@ public:
             return it->second;
         }
 
+        // Evict all if cache grows too large (prevents unbounded memory growth)
+        if (s_cache.size() >= 100) {
+            s_cache.clear();
+        }
+
         titleformat_object::ptr tf = compile(pattern.c_str());
         s_cache[pattern] = tf;
         return tf;

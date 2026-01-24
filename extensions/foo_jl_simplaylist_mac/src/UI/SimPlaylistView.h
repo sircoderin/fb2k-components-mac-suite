@@ -43,7 +43,7 @@ extern NSPasteboardType const SimPlaylistPasteboardType;
 @property (nonatomic, strong) NSArray<NSNumber *> *subgroupStarts;  // Playlist indices where subgroups start
 @property (nonatomic, strong) NSArray<NSString *> *subgroupHeaders;  // Header text per subgroup
 @property (nonatomic, strong) NSArray<NSNumber *> *subgroupCountPerGroup;  // Pre-computed subgroup count per group
-@property (nonatomic, strong) NSSet<NSNumber *> *subgroupRowSet;  // Pre-computed set of subgroup row numbers for O(1) lookup
+@property (nonatomic, strong) NSIndexSet *subgroupRowSet;  // Pre-computed subgroup row numbers for O(1) lookup and O(log n) range counting
 @property (nonatomic, strong) NSDictionary<NSNumber *, NSNumber *> *subgroupRowToIndex;  // Map row -> subgroup index
 
 // Formatted column values cache (lazily populated during draw, auto-evicts under memory pressure)
