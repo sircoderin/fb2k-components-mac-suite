@@ -199,7 +199,7 @@ static NSImage *_placeholderImage = nil;
                 }
             }
         } @catch (NSException *exception) {
-            // Ignore
+            FB2K_console_formatter() << "[SimPlaylist] Album art file load error: " << exception.reason.UTF8String;
         }
 
         // Second try: use SDK (may not work well on background thread)
@@ -232,11 +232,11 @@ static NSImage *_placeholderImage = nil;
                             }
                         }
                     } catch (...) {
-                        // Album art not found or other error
+                        // SDK album art extraction failed (no embedded art or format error)
                     }
                 }
             } @catch (NSException *exception) {
-                // Ignore
+                FB2K_console_formatter() << "[SimPlaylist] Album art SDK error: " << exception.reason.UTF8String;
             }
         }
 

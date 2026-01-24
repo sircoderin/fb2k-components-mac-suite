@@ -18,6 +18,7 @@
 #import "../../../../shared/UIStyles.h"
 
 #include <SDK/menu_helpers.h>
+#include <atomic>
 #include <set>
 #include <vector>
 
@@ -55,6 +56,10 @@ struct SubgroupDetector {
             fclose(debugFile);
         }
     }
+
+    // Non-copyable (FILE* ownership)
+    SubgroupDetector(const SubgroupDetector&) = delete;
+    SubgroupDetector& operator=(const SubgroupDetector&) = delete;
 
     // Initialize from existing state (for continuation from partial detection)
     void initFromState(const char* existingSubgroup) {
@@ -149,7 +154,7 @@ struct SubgroupDetector {
 
 // Global debug flag - set to true to enable debug logging
 // Output goes to /tmp/simplaylist_subgroup_debug.txt
-static bool g_subgroupDebugEnabled = false;
+static std::atomic<bool> g_subgroupDebugEnabled{false};
 
 // =============================================================================
 // ASYNC FILE IMPORT (copied from Plorg's working implementation)
@@ -843,7 +848,23 @@ struct ReloadOperation {
 }
 
 // Generation counter to cancel stale group detection
-static NSInteger _groupDetectionGeneration = 0;
+static std::atomic<NSInteger> _groupDetectionGeneration{0};
+
+// Shared padding calculation for album art minimum group height
+static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgroupsInGroup,
+                                           CGFloat albumArtSize, CGFloat rowHeight,
+                                           NSInteger headerStyle) {
+    // Clamp albumArtSize to prevent overflow with extreme config values
+    albumArtSize = MIN(MAX(albumArtSize, 0.0), 1000.0);
+    CGFloat padding = 6.0;
+    NSInteger minContentRows = (rowHeight > 0) ? (NSInteger)ceil((albumArtSize + padding * 2) / rowHeight) : 0;
+
+    NSInteger minPadding = (headerStyle == 3) ? 1 : 0;
+    NSInteger extraHeaderSpace = (headerStyle == 2) ? 1 : 0;
+    NSInteger extraTextSpace = (headerStyle == 3) ? 1 : 0;
+
+    return MAX(minPadding, minContentRows - trackCount - subgroupsInGroup - extraHeaderSpace + extraTextSpace);
+}
 
 // FAST PARTIAL GROUP DETECTION: Only detect groups up to scroll anchor for instant restore
 - (void)detectGroupsForPlaylistSync:(t_size)playlist itemCount:(t_size)itemCount preset:(GroupPreset *)preset {
@@ -942,28 +963,17 @@ static NSInteger _groupDetectionGeneration = 0;
     // Calculate padding rows for detected groups
     CGFloat rowHeight = _playlistView.rowHeight;
     CGFloat albumArtSize = _playlistView.albumArtSize;
-    CGFloat padding = 6.0;
-    NSInteger minContentRows = (NSInteger)ceil((albumArtSize + padding * 2) / rowHeight);
-
-    // Style 2 has header rows but album art starts at header row Y (extra row of space)
-    // Style 3 needs extra rows for header text below album art + visual separation
     NSInteger headerStyle = _playlistView.headerDisplayStyle;
-    NSInteger minPadding = (headerStyle == 3) ? 1 : 0;  // Style 3: 1 row for separation
-    // For style 2, album art starts at header row (not below), so we have 1 extra row of space
-    NSInteger extraHeaderSpace = (headerStyle == 2) ? 1 : 0;
-    // For style 3, add 1 extra row for header text below album art
-    NSInteger extraTextSpace = (headerStyle == 3) ? 1 : 0;
 
     NSMutableArray<NSNumber *> *paddingRows = [NSMutableArray arrayWithCapacity:groupStarts.count];
     for (NSUInteger g = 0; g < groupStarts.count; g++) {
         NSInteger groupStart = [groupStarts[g] integerValue];
         NSInteger groupEnd = (g + 1 < groupStarts.count) ? [groupStarts[g + 1] integerValue] : (NSInteger)detectUpTo;
         NSInteger trackCount = groupEnd - groupStart;
-        // Subgroup headers also take vertical space, subtract them from needed padding
         NSInteger subgroupsInGroup = (g < _playlistView.subgroupCountPerGroup.count)
             ? [_playlistView.subgroupCountPerGroup[g] integerValue] : 0;
-        NSInteger neededPadding = MAX(minPadding, minContentRows - trackCount - subgroupsInGroup - extraHeaderSpace + extraTextSpace);
-        [paddingRows addObject:@(neededPadding)];
+        [paddingRows addObject:@(calculatePaddingForGroup(trackCount, subgroupsInGroup,
+                                                          albumArtSize, rowHeight, headerStyle))];
     }
     _playlistView.groupPaddingRows = paddingRows;
     [_playlistView rebuildPaddingCache];
@@ -1027,7 +1037,7 @@ static NSInteger _groupDetectionGeneration = 0;
             SubgroupDetector bgSubgroupDetector(bgShowFirstSubgroup, g_subgroupDebugEnabled);
             bgSubgroupDetector.initFromState([lastSubgroup UTF8String]);
 
-            for (t_size i = detectUpTo; i < handlesPtr->get_count(); i++) {
+            for (t_size i = detectUpTo; i < handlesPtr->get_count(); i++) { @autoreleasepool {
                 if (_groupDetectionGeneration != currentGeneration) return;
 
                 (*handlesPtr)[i]->format_title(nullptr, bgFormattedHeader, bgHeaderScript, nullptr);
@@ -1048,7 +1058,7 @@ static NSInteger _groupDetectionGeneration = 0;
                     bgSubgroupDetector.shouldAddSubgroup(bgFormattedSubgroup, isNewGroup,
                                                           moreSubgroupStarts, moreSubgroupHeaders, i);
                 }
-            }
+            }}
 
             if (_groupDetectionGeneration != currentGeneration) return;
 
@@ -1083,21 +1093,19 @@ static NSInteger _groupDetectionGeneration = 0;
                 // NOTE: rebuildSubgroupRowCache must be called AFTER padding is set (below)
 
                 // Recalculate all padding rows (accounting for subgroups and header style)
+                CGFloat bgRowHeight = strongSelf.playlistView.rowHeight;
+                CGFloat bgAlbumArtSize = strongSelf.playlistView.albumArtSize;
                 NSInteger bgHeaderStyle = strongSelf.playlistView.headerDisplayStyle;
-                NSInteger bgMinPadding = (bgHeaderStyle == 3) ? 1 : 0;
-                NSInteger bgExtraHeaderSpace = (bgHeaderStyle == 2) ? 1 : 0;
-                NSInteger bgExtraTextSpace = (bgHeaderStyle == 3) ? 1 : 0;
 
                 NSMutableArray<NSNumber *> *allPaddingRows = [NSMutableArray arrayWithCapacity:allStarts.count];
                 for (NSUInteger g = 0; g < allStarts.count; g++) {
                     NSInteger gStart = [allStarts[g] integerValue];
                     NSInteger gEnd = (g + 1 < allStarts.count) ? [allStarts[g + 1] integerValue] : (NSInteger)itemCount;
                     NSInteger trackCount = gEnd - gStart;
-                    // Subgroup headers also take vertical space
                     NSInteger subgroupsInGroup = (g < strongSelf.playlistView.subgroupCountPerGroup.count)
                         ? [strongSelf.playlistView.subgroupCountPerGroup[g] integerValue] : 0;
-                    NSInteger neededPadding = MAX(bgMinPadding, minContentRows - trackCount - subgroupsInGroup - bgExtraHeaderSpace + bgExtraTextSpace);
-                    [allPaddingRows addObject:@(neededPadding)];
+                    [allPaddingRows addObject:@(calculatePaddingForGroup(trackCount, subgroupsInGroup,
+                                                                         bgAlbumArtSize, bgRowHeight, bgHeaderStyle))];
                 }
                 strongSelf.playlistView.groupPaddingRows = allPaddingRows;
                 [strongSelf.playlistView rebuildPaddingCache];
@@ -1198,7 +1206,7 @@ static NSInteger _groupDetectionGeneration = 0;
         pfc::string8 formattedHeader;
         pfc::string8 formattedSubgroup;
 
-        for (t_size i = 0; i < handlesPtr->get_count(); i++) {
+        for (t_size i = 0; i < handlesPtr->get_count(); i++) { @autoreleasepool {
             if (_groupDetectionGeneration != currentGeneration) return;
 
             // format_title with metadb_handle is thread-safe for reading
@@ -1220,7 +1228,7 @@ static NSInteger _groupDetectionGeneration = 0;
                 subgroupDetector.shouldAddSubgroup(formattedSubgroup, isNewGroup,
                                                     subgroupStarts, subgroupHeaders, i);
             }
-        }
+        }}
 
         if (_groupDetectionGeneration != currentGeneration) return;
 
@@ -1240,21 +1248,9 @@ static NSInteger _groupDetectionGeneration = 0;
             // NOTE: rebuildSubgroupRowCache must be called AFTER padding is set (below)
 
             // Calculate padding rows for each group based on minimum height for album art
-            CGFloat rowHeight = strongSelf.playlistView.rowHeight;
-            CGFloat albumArtSize = strongSelf.playlistView.albumArtSize;
-            CGFloat padding = 6.0;  // Same as in drawSparseGroupColumnInRect
-
-            // Minimum rows needed below header to fit album art with padding
-            NSInteger minContentRows = (NSInteger)ceil((albumArtSize + padding * 2) / rowHeight);
-
-            // Style 2 has header rows but album art starts at header row Y (extra row of space)
-            // Style 3 needs extra rows for header text below album art + visual separation
-            NSInteger headerStyle = strongSelf.playlistView.headerDisplayStyle;
-            NSInteger minPadding = (headerStyle == 3) ? 1 : 0;  // Style 3: 1 row for separation
-            // For style 2, album art starts at header row (not below), so we have 1 extra row of space
-            NSInteger extraHeaderSpace = (headerStyle == 2) ? 1 : 0;
-            // For style 3, add 1 extra row for header text below album art
-            NSInteger extraTextSpace = (headerStyle == 3) ? 1 : 0;
+            CGFloat asyncRowHeight = strongSelf.playlistView.rowHeight;
+            CGFloat asyncAlbumArtSize = strongSelf.playlistView.albumArtSize;
+            NSInteger asyncHeaderStyle = strongSelf.playlistView.headerDisplayStyle;
 
             NSMutableArray<NSNumber *> *paddingRows = [NSMutableArray arrayWithCapacity:groupStarts.count];
             NSInteger totalItems = strongSelf.playlistView.itemCount;
@@ -1263,12 +1259,10 @@ static NSInteger _groupDetectionGeneration = 0;
                 NSInteger groupStart = [groupStarts[g] integerValue];
                 NSInteger groupEnd = (g + 1 < groupStarts.count) ? [groupStarts[g + 1] integerValue] : totalItems;
                 NSInteger trackCount = groupEnd - groupStart;
-
-                // Subgroup headers also take vertical space, subtract them from needed padding
                 NSInteger subgroupsInGroup = (g < strongSelf.playlistView.subgroupCountPerGroup.count)
                     ? [strongSelf.playlistView.subgroupCountPerGroup[g] integerValue] : 0;
-                NSInteger neededPadding = MAX(minPadding, minContentRows - trackCount - subgroupsInGroup - extraHeaderSpace + extraTextSpace);
-                [paddingRows addObject:@(neededPadding)];
+                [paddingRows addObject:@(calculatePaddingForGroup(trackCount, subgroupsInGroup,
+                                                                   asyncAlbumArtSize, asyncRowHeight, asyncHeaderStyle))];
             }
 
             strongSelf.playlistView.groupPaddingRows = paddingRows;
