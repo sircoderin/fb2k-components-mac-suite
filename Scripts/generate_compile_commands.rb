@@ -50,7 +50,7 @@ component_dirs.each do |component_dir|
                       .select { |d| File.directory?(d) }
 
   source_files = source_subdirs.flat_map do |subdir|
-    Dir.glob(File.join(subdir, "*.{cpp,mm}"))
+    Dir.glob(File.join(subdir, "*.{cpp,mm,h}"))
   end
 
   next if source_files.empty?
@@ -59,7 +59,7 @@ component_dirs.each do |component_dir|
     ext = File.extname(source_file)
     arguments = ["clang++"]
 
-    if ext == ".mm"
+    if ext == ".mm" || ext == ".h"
       arguments += ["-x", "objective-c++", "-std=gnu++17", "-fobjc-arc"]
     else
       arguments += ["-std=gnu++17"]
@@ -89,6 +89,37 @@ component_dirs.each do |component_dir|
 
   puts "  #{File.basename(component_dir)}: #{source_files.size} files"
 end
+
+# Include shared/ files
+shared_dir = File.join(REPO_ROOT, "shared")
+shared_files = Dir.glob(File.join(shared_dir, "*.{h,mm,cpp}")).sort
+shared_files.each do |source_file|
+  ext = File.extname(source_file)
+  arguments = ["clang++"]
+
+  if ext == ".mm" || ext == ".h"
+    arguments += ["-x", "objective-c++", "-std=gnu++17", "-fobjc-arc"]
+  else
+    arguments += ["-std=gnu++17"]
+  end
+
+  arguments += [
+    "-mmacosx-version-min=11.0",
+    "-DFOOBAR2000_HAVE_CFG_VAR_LEGACY=1",
+    "-isysroot", SYSTEM_SDK,
+    "-I#{FB2K_SDK}",
+    "-I#{File.join(FB2K_SDK, 'foobar2000')}",
+    "-I#{File.join(FB2K_SDK, 'pfc')}",
+    "-c", source_file
+  ]
+
+  entries << {
+    "directory" => REPO_ROOT,
+    "file" => source_file,
+    "arguments" => arguments
+  }
+end
+puts "  shared: #{shared_files.size} files" unless shared_files.empty?
 
 output_path = File.join(REPO_ROOT, "compile_commands.json")
 File.write(output_path, JSON.pretty_generate(entries) + "\n")
