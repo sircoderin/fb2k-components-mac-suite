@@ -231,20 +231,16 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     // This is CRITICAL for empty playlists to receive drag events
     NSScrollView *scrollView = self.enclosingScrollView;
     if (scrollView) {
-        NSSize visibleSize = scrollView.contentView.bounds.size;
-        if (contentSize.height < visibleSize.height) {
-            contentSize.height = visibleSize.height;
-        }
-        if (contentSize.width < visibleSize.width) {
-            contentSize.width = visibleSize.width;
-        }
+        NSSize visibleSize = scrollView.documentVisibleRect.size;
+        contentSize.height = MAX(contentSize.height, visibleSize.height);
+        contentSize.width = MAX(contentSize.width, visibleSize.width);
     }
 
-    NSRect frame = self.frame;
-    frame.size = contentSize;
-    self.frame = frame;
-
-    [self invalidateIntrinsicContentSize];
+    // Only trigger layout if frame size actually changed
+    if (!NSEqualSizes(self.frame.size, contentSize)) {
+        [self setFrameSize:contentSize];
+        [self invalidateIntrinsicContentSize];
+    }
     [self setNeedsDisplay:YES];
 }
 
@@ -1014,7 +1010,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     // Calculate vertical centering with equal top/bottom padding
     CGFloat textHeight = font.ascender - font.descender;
-    CGFloat verticalPadding = floor((rect.size.height - textHeight) / 2.0);
+    CGFloat verticalPadding = round((rect.size.height - textHeight) / 2.0);
 
     for (NSUInteger colIndex = 0; colIndex < _columns.count; colIndex++) {
         ColumnDefinition *col = _columns[colIndex];
@@ -2557,18 +2553,6 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         if (urls.count > 0) {
             if ([_delegate respondsToSelector:@selector(playlistView:didReceiveDroppedURLs:atRow:)]) {
                 [_delegate playlistView:self didReceiveDroppedURLs:urls atRow:_dropTargetRow];
-            }
-        } else {
-            // Fallback: read filenames directly (for media library which may not use file URLs)
-            NSArray *filenames = [pb propertyListForType:NSFilenamesPboardType];
-            if (filenames.count > 0) {
-                NSMutableArray *fileURLs = [NSMutableArray array];
-                for (NSString *path in filenames) {
-                    [fileURLs addObject:[NSURL fileURLWithPath:path]];
-                }
-                if ([_delegate respondsToSelector:@selector(playlistView:didReceiveDroppedURLs:atRow:)]) {
-                    [_delegate playlistView:self didReceiveDroppedURLs:fileURLs atRow:_dropTargetRow];
-                }
             }
         }
         _dropTargetRow = -1;
