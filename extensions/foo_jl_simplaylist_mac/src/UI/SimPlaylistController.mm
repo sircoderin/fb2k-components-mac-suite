@@ -472,6 +472,33 @@ struct ReloadOperation {
     _headerBar.frame = NSMakeRect(0, containerHeight - headerHeight, self.view.bounds.size.width, headerHeight);
     _scrollView.frame = NSMakeRect(0, 0, self.view.bounds.size.width, containerHeight - headerHeight);
 
+    // Handle glass background toggle without requiring restart
+    BOOL glassBackground = simplaylist_config::getConfigBool(
+        simplaylist_config::kGlassBackground,
+        simplaylist_config::kDefaultGlassBackground);
+    BOOL currentlyGlass = [self.view isKindOfClass:[NSVisualEffectView class]];
+    if (glassBackground != currentlyGlass) {
+        NSView *newContainer;
+        if (glassBackground) {
+            newContainer = fb2k_ui::createGlassContainer(self.view.frame);
+        } else {
+            newContainer = [[NSView alloc] initWithFrame:self.view.frame];
+        }
+        newContainer.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+        // Transfer subviews to new container
+        [_headerBar removeFromSuperview];
+        [_scrollView removeFromSuperview];
+        [newContainer addSubview:_headerBar];
+        [newContainer addSubview:_scrollView];
+
+        // Replace the view (NSViewController manages parent insertion)
+        self.view = newContainer;
+    }
+    _headerBar.glassBackground = glassBackground;
+    _playlistView.glassBackground = glassBackground;
+    fb2k_ui::configureScrollViewForGlass(_scrollView, glassBackground);
+
     // Reload group column width
     CGFloat newWidth = simplaylist_config::getConfigInt(
         simplaylist_config::kGroupColumnWidth,
