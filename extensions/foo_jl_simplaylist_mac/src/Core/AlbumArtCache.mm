@@ -174,23 +174,25 @@ static NSImage *_placeholderImage = nil;
                         filePath = [filePath stringByRemovingPercentEncoding];
                     }
 
-                    NSString *directory = [filePath stringByDeletingLastPathComponent];
+                    NSString *directory = [[filePath stringByDeletingLastPathComponent] stringByResolvingSymlinksInPath];
                     NSFileManager *fm = [NSFileManager defaultManager];
 
-                    // Common cover image filenames
-                    NSArray *coverNames = @[@"cover.jpg", @"cover.png", @"folder.jpg", @"folder.png",
-                                           @"front.jpg", @"front.png", @"album.jpg", @"album.png",
-                                           @"Cover.jpg", @"Cover.png", @"Folder.jpg", @"Folder.png"];
+                    if (directory.length > 0 && [fm fileExistsAtPath:directory]) {
+                        // Common cover image filenames
+                        NSArray *coverNames = @[@"cover.jpg", @"cover.png", @"folder.jpg", @"folder.png",
+                                               @"front.jpg", @"front.png", @"album.jpg", @"album.png",
+                                               @"Cover.jpg", @"Cover.png", @"Folder.jpg", @"Folder.png"];
 
-                    for (NSString *name in coverNames) {
-                        NSString *coverPath = [directory stringByAppendingPathComponent:name];
-                        if ([fm fileExistsAtPath:coverPath]) {
-                            image = [[NSImage alloc] initWithContentsOfFile:coverPath];
-                            if (image) {
-                                if (image.size.width > 512 || image.size.height > 512) {
-                                    image = [self resizeImage:image toMaxSize:512];
+                        for (NSString *name in coverNames) {
+                            NSString *coverPath = [directory stringByAppendingPathComponent:name];
+                            if ([fm fileExistsAtPath:coverPath]) {
+                                image = [[NSImage alloc] initWithContentsOfFile:coverPath];
+                                if (image) {
+                                    if (image.size.width > 512 || image.size.height > 512) {
+                                        image = [self resizeImage:image toMaxSize:512];
+                                    }
+                                    break;
                                 }
-                                break;
                             }
                         }
                     }

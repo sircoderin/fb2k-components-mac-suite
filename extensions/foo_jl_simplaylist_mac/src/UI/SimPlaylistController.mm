@@ -1108,7 +1108,7 @@ static NSInteger _groupDetectionGeneration = 0;
     _playlistView.subgroupStarts = @[];
     _playlistView.subgroupHeaders = @[];
     _playlistView.subgroupCountPerGroup = @[];
-    _playlistView.subgroupRowSet = [NSSet set];
+    _playlistView.subgroupRowSet = [NSIndexSet indexSet];
     _playlistView.subgroupRowToIndex = @{};
 
     // Set frame size and display immediately
