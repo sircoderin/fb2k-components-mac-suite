@@ -72,7 +72,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     _subgroupStarts = @[];
     _subgroupHeaders = @[];
     _subgroupCountPerGroup = @[];
-    _subgroupRowSet = [NSSet set];
+    _subgroupRowSet = [NSIndexSet indexSet];
     _subgroupRowToIndex = @{};
     _formattedValuesCache = [[NSCache alloc] init];
     _formattedValuesCache.countLimit = 1000;  // Cache ~1000 visible row values, auto-evicts oldest
@@ -403,13 +403,11 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         ? [_groupStarts[groupIndex + 1] integerValue]
         : _itemCount;
 
-    // Count subgroup rows between groupStartRow and this row using cached set - O(subgroups in group)
+    // Count subgroup rows between groupStartRow and this row - O(log n) with NSIndexSet
     NSInteger subgroupsInGroup = 0;
-    for (NSNumber *sgRowNum in _subgroupRowSet) {
-        NSInteger sgRow = [sgRowNum integerValue];
-        if (sgRow > groupStartRow && sgRow < row) {
-            subgroupsInGroup++;
-        }
+    if (row > groupStartRow + 1) {
+        NSRange range = NSMakeRange(groupStartRow + 1, row - groupStartRow - 1);
+        subgroupsInGroup = (NSInteger)[_subgroupRowSet countOfIndexesInRange:range];
     }
 
     // Calculate position within group accounting for subgroups
@@ -474,20 +472,21 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 // Rebuild subgroup row cache for O(1) lookup (call when subgroups or layout changes)
 - (void)rebuildSubgroupRowCache {
     if (_subgroupStarts.count == 0) {
-        _subgroupRowSet = [NSSet set];
+        _subgroupRowSet = [NSIndexSet indexSet];
         _subgroupRowToIndex = @{};
         return;
     }
 
-    NSMutableSet<NSNumber *> *rowSet = [NSMutableSet setWithCapacity:_subgroupStarts.count];
+    NSMutableIndexSet *rowSet = [NSMutableIndexSet indexSet];
     NSMutableDictionary<NSNumber *, NSNumber *> *rowToIndex = [NSMutableDictionary dictionaryWithCapacity:_subgroupStarts.count];
 
     for (NSUInteger i = 0; i < _subgroupStarts.count; i++) {
         NSInteger subgroupPlaylistIndex = [_subgroupStarts[i] integerValue];
         NSInteger subgroupRow = [self rowForSubgroupAtPlaylistIndex:subgroupPlaylistIndex];
-        NSNumber *rowNum = @(subgroupRow);
-        [rowSet addObject:rowNum];
-        rowToIndex[rowNum] = @(i);
+        if (subgroupRow >= 0) {
+            [rowSet addIndex:(NSUInteger)subgroupRow];
+            rowToIndex[@(subgroupRow)] = @(i);
+        }
     }
 
     _subgroupRowSet = [rowSet copy];
@@ -569,7 +568,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
 // Check if a row is a subgroup header - O(1) using pre-computed cache
 - (BOOL)isRowSubgroupHeader:(NSInteger)row {
-    return [_subgroupRowSet containsObject:@(row)];
+    if (row < 0) return NO;
+    return [_subgroupRowSet containsIndex:(NSUInteger)row];
 }
 
 // Get subgroup header text for a row (returns nil if not a subgroup header) - O(1) using cache
