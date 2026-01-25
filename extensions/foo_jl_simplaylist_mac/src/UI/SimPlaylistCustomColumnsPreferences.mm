@@ -262,7 +262,11 @@
     NSTableColumn *tableColumn = _tableView.tableColumns[column];
 
     if ([tableColumn.identifier isEqualToString:@"name"]) {
-        _columns[row].name = sender.stringValue;
+        NSString *oldName = _columns[row].name;
+        NSString *newName = sender.stringValue;
+        _columns[row].name = newName;
+        // Sync rename to visible columns so they stay linked
+        [ColumnDefinition syncCustomColumnRenameFrom:oldName to:newName];
     } else if ([tableColumn.identifier isEqualToString:@"pattern"]) {
         _columns[row].pattern = sender.stringValue;
     }
