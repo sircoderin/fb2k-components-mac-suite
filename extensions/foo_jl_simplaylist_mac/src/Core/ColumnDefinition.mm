@@ -87,6 +87,17 @@
         NSString *jsonString = [NSString stringWithUTF8String:savedJSON.c_str()];
         NSArray<ColumnDefinition *> *columns = [self columnsFromJSON:jsonString];
         if (columns.count > 0) {
+            // Clean up any orphaned custom columns
+            NSArray<ColumnDefinition *> *cleaned = [self removeOrphanedColumns:columns];
+            if (cleaned.count != columns.count) {
+                // Some columns were removed - save the cleaned list
+                NSString *cleanedJSON = [self columnsToJSON:cleaned];
+                simplaylist_config::setConfigString(
+                    simplaylist_config::kColumns, cleanedJSON.UTF8String);
+                FB2K_console_formatter() << "[SimPlaylist] Removed "
+                    << (columns.count - cleaned.count) << " orphaned custom column(s)";
+                return cleaned;
+            }
             return columns;
         }
     }
@@ -310,6 +321,76 @@
     if (index < columns.count) {
         [columns removeObjectAtIndex:index];
         [self saveCustomColumns:columns];
+    }
+}
+
++ (NSArray<ColumnDefinition *> *)removeOrphanedColumns:(NSArray<ColumnDefinition *> *)columns {
+    // Build set of all known column names (templates + SDK providers + custom definitions)
+    NSMutableSet<NSString *> *knownNames = [NSMutableSet set];
+
+    // Add built-in template names
+    for (ColumnDefinition *col in [self availableColumnTemplates]) {
+        [knownNames addObject:col.name];
+    }
+
+    // Add SDK provider column names
+    for (ColumnDefinition *col in [self columnsFromSDKProviders]) {
+        [knownNames addObject:col.name];
+    }
+
+    // Add user-defined custom column names
+    for (ColumnDefinition *col in [self customColumns]) {
+        [knownNames addObject:col.name];
+    }
+
+    // Filter to only columns with known names
+    NSMutableArray<ColumnDefinition *> *result = [NSMutableArray array];
+    for (ColumnDefinition *col in columns) {
+        if ([knownNames containsObject:col.name]) {
+            [result addObject:col];
+        }
+    }
+
+    return result;
+}
+
++ (void)syncCustomColumnRenameFrom:(NSString *)oldName to:(NSString *)newName {
+    if (!oldName || !newName || [oldName isEqualToString:newName]) {
+        return;
+    }
+
+    // Load current visible columns
+    std::string savedJSON = simplaylist_config::getConfigString(
+        simplaylist_config::kColumns, "");
+    if (savedJSON.empty()) {
+        return;
+    }
+
+    NSString *jsonString = [NSString stringWithUTF8String:savedJSON.c_str()];
+    NSArray<ColumnDefinition *> *columns = [self columnsFromJSON:jsonString];
+    if (columns.count == 0) {
+        return;
+    }
+
+    // Find and update any column with the old name
+    BOOL changed = NO;
+    NSMutableArray<ColumnDefinition *> *updated = [NSMutableArray array];
+    for (ColumnDefinition *col in columns) {
+        if ([col.name isEqualToString:oldName]) {
+            ColumnDefinition *renamed = [col copy];
+            renamed.name = newName;
+            [updated addObject:renamed];
+            changed = YES;
+        } else {
+            [updated addObject:col];
+        }
+    }
+
+    // Save if any columns were renamed
+    if (changed) {
+        NSString *updatedJSON = [self columnsToJSON:updated];
+        simplaylist_config::setConfigString(
+            simplaylist_config::kColumns, updatedJSON.UTF8String);
     }
 }
 
