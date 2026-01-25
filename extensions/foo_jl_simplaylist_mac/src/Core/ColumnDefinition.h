@@ -72,6 +72,12 @@ typedef NS_ENUM(NSInteger, ColumnAlignment) {
 + (void)addCustomColumn:(ColumnDefinition *)column;
 + (void)removeCustomColumnAtIndex:(NSUInteger)index;
 
+// Remove orphaned columns (visible columns with no matching definition)
++ (NSArray<ColumnDefinition *> *)removeOrphanedColumns:(NSArray<ColumnDefinition *> *)columns;
+
+// Update visible columns when a custom column is renamed
++ (void)syncCustomColumnRenameFrom:(NSString *)oldName to:(NSString *)newName;
+
 // Parse columns from JSON string
 + (NSArray<ColumnDefinition *> *)columnsFromJSON:(NSString *)jsonString;
 
