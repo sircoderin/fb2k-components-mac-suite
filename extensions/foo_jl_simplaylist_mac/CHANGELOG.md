@@ -2,6 +2,13 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.3.1] - 2026-01-26
+
+### Fixed
+- **Orphaned custom columns**: Renaming a custom column no longer causes it to become unmanageable
+- Custom column renames now sync to visible columns list
+- Orphaned columns (visible but without definition) are automatically cleaned up on startup
+
 ## [1.3.0] - 2026-01-13
 
 ### Added
