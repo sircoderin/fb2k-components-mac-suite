@@ -9,6 +9,10 @@ reference_sources/
 
 # Code review outputs (generated locally)
 code_reviews/
+code-reviews/
+
+# Cache directories
+.cache/
 
 # Xcode build artifacts
 build/
