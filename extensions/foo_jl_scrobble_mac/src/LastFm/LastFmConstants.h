@@ -27,7 +27,11 @@ static const char* const kMethodScrobble = "track.scrobble";
 static const char* const kMethodNowPlaying = "track.updateNowPlaying";
 static const char* const kMethodGetUserInfo = "user.getInfo";
 static const char* const kMethodGetTopAlbums = "user.getTopAlbums";
+static const char* const kMethodGetTopArtists = "user.getTopArtists";
+static const char* const kMethodGetTopTracks = "user.getTopTracks";
 static const char* const kMethodGetRecentTracks = "user.getRecentTracks";
+static const char* const kMethodGetAlbumInfo = "album.getInfo";
+static const char* const kMethodGetTrackInfo = "track.getInfo";
 
 // Timing constants
 static const double kAuthPollInterval = 3.0;      // Poll for approval every 3s

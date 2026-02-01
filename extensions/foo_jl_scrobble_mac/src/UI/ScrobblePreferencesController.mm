@@ -27,6 +27,13 @@
 @property (nonatomic, strong) NSButton *libraryOnlyCheckbox;
 @property (nonatomic, strong) NSButton *dynamicSourcesCheckbox;
 
+// Widget settings
+@property (nonatomic, strong) NSPopUpButton *cacheDurationPopup;
+@property (nonatomic, strong) NSPopUpButton *displayStylePopup;
+@property (nonatomic, strong) NSButton *streakDisplayCheckbox;
+@property (nonatomic, strong) NSButton *glassBackgroundCheckbox;
+@property (nonatomic, strong) NSColorWell *backgroundColorWell;
+
 // Status labels
 @property (nonatomic, strong) NSTextField *queueStatusLabel;
 @property (nonatomic, strong) NSTextField *sessionStatsLabel;
@@ -184,6 +191,98 @@
                                                        action:@selector(settingsChanged:)];
     addIndentedRow(self.dynamicSourcesCheckbox, rowHeight + sectionGap);
 
+    // ===== Widget Settings =====
+    NSTextField *widgetLabel = [NSTextField labelWithString:@"Widget Settings"];
+    widgetLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
+    widgetLabel.textColor = [NSColor secondaryLabelColor];
+    addRow(widgetLabel, rowHeight);
+
+    // Cache duration row with label and popup
+    NSStackView *cacheRow = [[NSStackView alloc] init];
+    cacheRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    cacheRow.spacing = 8;
+    cacheRow.alignment = NSLayoutAttributeCenterY;
+
+    NSTextField *cacheLabel = [NSTextField labelWithString:@"Cache chart data for:"];
+    cacheLabel.font = [NSFont systemFontOfSize:11];
+    cacheLabel.textColor = [NSColor labelColor];
+    [cacheRow addArrangedSubview:cacheLabel];
+
+    self.cacheDurationPopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    self.cacheDurationPopup.font = [NSFont systemFontOfSize:11];
+    [self.cacheDurationPopup addItemsWithTitles:@[
+        @"No caching", @"1 minute", @"2 minutes", @"5 minutes", @"10 minutes", @"30 minutes",
+        @"1 hour", @"4 hours", @"12 hours", @"1 day", @"2 days", @"7 days", @"30 days", @"180 days"
+    ]];
+    self.cacheDurationPopup.target = self;
+    self.cacheDurationPopup.action = @selector(cacheDurationChanged:);
+    [cacheRow addArrangedSubview:self.cacheDurationPopup];
+
+    addIndentedRow(cacheRow, rowHeight);
+
+    // Display style row
+    NSStackView *displayStyleRow = [[NSStackView alloc] init];
+    displayStyleRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    displayStyleRow.spacing = 8;
+    displayStyleRow.alignment = NSLayoutAttributeCenterY;
+
+    NSTextField *displayStyleLabel = [NSTextField labelWithString:@"Display style:"];
+    displayStyleLabel.font = [NSFont systemFontOfSize:11];
+    displayStyleLabel.textColor = [NSColor labelColor];
+    [displayStyleRow addArrangedSubview:displayStyleLabel];
+
+    self.displayStylePopup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    self.displayStylePopup.font = [NSFont systemFontOfSize:11];
+    [self.displayStylePopup addItemsWithTitles:@[@"Default (Grid)", @"Playback 2025 (Bubbles)"]];
+    self.displayStylePopup.target = self;
+    self.displayStylePopup.action = @selector(displayStyleChanged:);
+    [displayStyleRow addArrangedSubview:self.displayStylePopup];
+
+    addIndentedRow(displayStyleRow, rowHeight);
+
+    // Streak display checkbox
+    self.streakDisplayCheckbox = [NSButton checkboxWithTitle:@"Show listening streak in footer"
+                                                      target:self
+                                                      action:@selector(streakDisplayChanged:)];
+    addIndentedRow(self.streakDisplayCheckbox, rowHeight);
+
+    // Glass background checkbox
+    self.glassBackgroundCheckbox = [NSButton checkboxWithTitle:@"Use glass background effect"
+                                                        target:self
+                                                        action:@selector(glassBackgroundChanged:)];
+    addIndentedRow(self.glassBackgroundCheckbox, rowHeight);
+
+    // Background color row
+    NSStackView *bgColorRow = [[NSStackView alloc] init];
+    bgColorRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    bgColorRow.spacing = 8;
+    bgColorRow.alignment = NSLayoutAttributeCenterY;
+
+    NSTextField *bgColorLabel = [NSTextField labelWithString:@"Background color:"];
+    bgColorLabel.font = [NSFont systemFontOfSize:11];
+    bgColorLabel.textColor = [NSColor labelColor];
+    [bgColorRow addArrangedSubview:bgColorLabel];
+
+    self.backgroundColorWell = [[NSColorWell alloc] initWithFrame:NSMakeRect(0, 0, 40, 24)];
+    self.backgroundColorWell.target = self;
+    self.backgroundColorWell.action = @selector(backgroundColorChanged:);
+    if (@available(macOS 13.0, *)) {
+        self.backgroundColorWell.colorWellStyle = NSColorWellStyleMinimal;
+    }
+    [self.backgroundColorWell setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.backgroundColorWell.widthAnchor constraintEqualToConstant:40],
+        [self.backgroundColorWell.heightAnchor constraintEqualToConstant:24]
+    ]];
+    [bgColorRow addArrangedSubview:self.backgroundColorWell];
+
+    NSTextField *bgColorHint = [NSTextField labelWithString:@"(disabled when glass is on)"];
+    bgColorHint.font = [NSFont systemFontOfSize:10];
+    bgColorHint.textColor = [NSColor tertiaryLabelColor];
+    [bgColorRow addArrangedSubview:bgColorHint];
+
+    addIndentedRow(bgColorRow, rowHeight + sectionGap);
+
     // ===== Status Section =====
     NSTextField *statusLabel = [NSTextField labelWithString:@"Status"];
     statusLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
@@ -223,6 +322,61 @@
     self.enableNowPlayingCheckbox.state = scrobble_config::isNowPlayingEnabled() ? NSControlStateValueOn : NSControlStateValueOff;
     self.libraryOnlyCheckbox.state = scrobble_config::isLibraryOnlyEnabled() ? NSControlStateValueOn : NSControlStateValueOff;
     self.dynamicSourcesCheckbox.state = scrobble_config::isDynamicSourcesEnabled() ? NSControlStateValueOn : NSControlStateValueOff;
+
+    // Load cache duration setting
+    int64_t cacheDuration = scrobble_config::getWidgetCacheDuration();
+    NSInteger popupIndex = 3;  // Default to 5 minutes
+    if (cacheDuration <= 0) {
+        popupIndex = 0;  // No caching
+    } else if (cacheDuration <= 60) {
+        popupIndex = 1;  // 1 minute
+    } else if (cacheDuration <= 120) {
+        popupIndex = 2;  // 2 minutes
+    } else if (cacheDuration <= 300) {
+        popupIndex = 3;  // 5 minutes
+    } else if (cacheDuration <= 600) {
+        popupIndex = 4;  // 10 minutes
+    } else if (cacheDuration <= 1800) {
+        popupIndex = 5;  // 30 minutes
+    } else if (cacheDuration <= 3600) {
+        popupIndex = 6;  // 1 hour
+    } else if (cacheDuration <= 14400) {
+        popupIndex = 7;  // 4 hours
+    } else if (cacheDuration <= 43200) {
+        popupIndex = 8;  // 12 hours
+    } else if (cacheDuration <= 86400) {
+        popupIndex = 9;  // 1 day
+    } else if (cacheDuration <= 172800) {
+        popupIndex = 10; // 2 days
+    } else if (cacheDuration <= 604800) {
+        popupIndex = 11; // 7 days
+    } else if (cacheDuration <= 2592000) {
+        popupIndex = 12; // 30 days
+    } else {
+        popupIndex = 13; // 180 days
+    }
+    [self.cacheDurationPopup selectItemAtIndex:popupIndex];
+
+    // Load display style
+    std::string displayStyle = scrobble_config::getWidgetDisplayStyle();
+    if (displayStyle == "playback2025") {
+        [self.displayStylePopup selectItemAtIndex:1];
+    } else {
+        [self.displayStylePopup selectItemAtIndex:0];
+    }
+
+    // Load streak display setting
+    self.streakDisplayCheckbox.state = scrobble_config::isStreakDisplayEnabled() ? NSControlStateValueOn : NSControlStateValueOff;
+
+    // Load glass background setting
+    BOOL glassEnabled = scrobble_config::isWidgetGlassBackground();
+    self.glassBackgroundCheckbox.state = glassEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+
+    // Load background color
+    int64_t argb = scrobble_config::getWidgetBackgroundColor();
+    NSColor *bgColor = [self colorFromARGB:(uint32_t)argb];
+    self.backgroundColorWell.color = bgColor;
+    self.backgroundColorWell.enabled = !glassEnabled;  // Disable when glass is on
 }
 
 - (void)saveSettings {
@@ -234,6 +388,100 @@
 
 - (void)settingsChanged:(id)sender {
     [self saveSettings];
+}
+
+- (void)cacheDurationChanged:(id)sender {
+    // Map popup index to seconds
+    NSInteger index = self.cacheDurationPopup.indexOfSelectedItem;
+    int64_t seconds = 300;  // Default 5 minutes
+    switch (index) {
+        case 0:  seconds = 0; break;         // No caching
+        case 1:  seconds = 60; break;        // 1 minute
+        case 2:  seconds = 120; break;       // 2 minutes
+        case 3:  seconds = 300; break;       // 5 minutes
+        case 4:  seconds = 600; break;       // 10 minutes
+        case 5:  seconds = 1800; break;      // 30 minutes
+        case 6:  seconds = 3600; break;      // 1 hour
+        case 7:  seconds = 14400; break;     // 4 hours
+        case 8:  seconds = 43200; break;     // 12 hours
+        case 9:  seconds = 86400; break;     // 1 day
+        case 10: seconds = 172800; break;    // 2 days
+        case 11: seconds = 604800; break;    // 7 days
+        case 12: seconds = 2592000; break;   // 30 days
+        case 13: seconds = 15552000; break;  // 180 days
+    }
+    scrobble_config::setWidgetCacheDuration(seconds);
+}
+
+- (void)displayStyleChanged:(id)sender {
+    NSInteger index = self.displayStylePopup.indexOfSelectedItem;
+    if (index == 1) {
+        scrobble_config::setWidgetDisplayStyle("playback2025");
+    } else {
+        scrobble_config::setWidgetDisplayStyle("default");
+    }
+
+    // Post notification so widget can update
+    [[NSNotificationCenter defaultCenter] postNotificationName:ScrobbleSettingsDidChangeNotification
+                                                        object:self
+                                                      userInfo:@{@"setting": @"displayStyle"}];
+}
+
+- (void)streakDisplayChanged:(id)sender {
+    scrobble_config::setStreakDisplayEnabled(self.streakDisplayCheckbox.state == NSControlStateValueOn);
+
+    // Post notification so widget can update
+    [[NSNotificationCenter defaultCenter] postNotificationName:ScrobbleSettingsDidChangeNotification
+                                                        object:self
+                                                      userInfo:@{@"setting": @"streakDisplay"}];
+}
+
+- (void)glassBackgroundChanged:(id)sender {
+    BOOL enabled = (self.glassBackgroundCheckbox.state == NSControlStateValueOn);
+    scrobble_config::setWidgetGlassBackground(enabled);
+
+    // Disable color well when glass is on
+    self.backgroundColorWell.enabled = !enabled;
+
+    // Post notification so widget can update
+    [[NSNotificationCenter defaultCenter] postNotificationName:ScrobbleSettingsDidChangeNotification
+                                                        object:self
+                                                      userInfo:@{@"setting": @"glassBackground"}];
+}
+
+- (void)backgroundColorChanged:(id)sender {
+    uint32_t argb = [self argbFromColor:self.backgroundColorWell.color];
+    scrobble_config::setWidgetBackgroundColor(argb);
+
+    // Post notification so widget can update
+    [[NSNotificationCenter defaultCenter] postNotificationName:ScrobbleSettingsDidChangeNotification
+                                                        object:self
+                                                      userInfo:@{@"setting": @"backgroundColor"}];
+}
+
+#pragma mark - Color Conversion
+
+- (NSColor *)colorFromARGB:(uint32_t)argb {
+    // If alpha is 0 (transparent/unset), use system background
+    if ((argb >> 24) == 0) {
+        return [NSColor windowBackgroundColor];
+    }
+    return [NSColor colorWithRed:((argb >> 16) & 0xFF) / 255.0
+                           green:((argb >> 8) & 0xFF) / 255.0
+                            blue:(argb & 0xFF) / 255.0
+                           alpha:((argb >> 24) & 0xFF) / 255.0];
+}
+
+- (uint32_t)argbFromColor:(NSColor *)color {
+    NSColor *rgbColor = [color colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+    if (!rgbColor) return 0xFF000000;  // Opaque black fallback
+
+    uint32_t a = (uint32_t)(rgbColor.alphaComponent * 255) & 0xFF;
+    uint32_t r = (uint32_t)(rgbColor.redComponent * 255) & 0xFF;
+    uint32_t g = (uint32_t)(rgbColor.greenComponent * 255) & 0xFF;
+    uint32_t b = (uint32_t)(rgbColor.blueComponent * 255) & 0xFF;
+
+    return (a << 24) | (r << 16) | (g << 8) | b;
 }
 
 #pragma mark - Authentication

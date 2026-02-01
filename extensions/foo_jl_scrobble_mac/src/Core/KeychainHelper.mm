@@ -27,7 +27,7 @@ static NSString * const kUsernameKey = @"foo_scrobble.username";
         (__bridge id)kSecAttrService: kServiceName,
         (__bridge id)kSecAttrAccount: username,
         (__bridge id)kSecValueData: [sessionKey dataUsingEncoding:NSUTF8StringEncoding],
-        (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleWhenUnlocked,
+        (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAfterFirstUnlock,
     };
 
     OSStatus status = SecItemAdd((__bridge CFDictionaryRef)query, NULL);
@@ -101,7 +101,7 @@ static NSString * const kUsernameKey = @"foo_scrobble.username";
         (__bridge id)kSecAttrService: kServiceName,
         (__bridge id)kSecAttrAccount: account,
         (__bridge id)kSecValueData: [password dataUsingEncoding:NSUTF8StringEncoding],
-        (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleWhenUnlocked,
+        (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAfterFirstUnlock,
     };
 
     OSStatus status = SecItemAdd((__bridge CFDictionaryRef)query, NULL);

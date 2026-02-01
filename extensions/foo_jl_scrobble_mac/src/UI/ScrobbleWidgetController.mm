@@ -8,6 +8,8 @@
 #import "ScrobbleWidgetController.h"
 #import "ScrobbleWidgetView.h"
 #import "../Core/ScrobbleConfig.h"
+#import "../Core/ScrobbleStreakCache.h"
+#import "../Core/ScrobbleNotifications.h"
 #import "../Core/TopAlbum.h"
 #import "../LastFm/LastFmClient.h"
 #import "../LastFm/LastFmAuth.h"
@@ -59,6 +61,17 @@
 
 @end
 
+// Cached API result with timestamp
+@interface ScrobbleWidgetCacheEntry : NSObject
+@property (nonatomic, strong) NSArray<TopAlbum *> *albums;
+@property (nonatomic, strong) NSDate *timestamp;
+@property (nonatomic, assign) NSInteger scrobbledToday;
+@property (nonatomic, strong) NSDictionary<NSURL*, NSImage*> *albumImages;
+@end
+
+@implementation ScrobbleWidgetCacheEntry
+@end
+
 @interface ScrobbleWidgetController () <ScrobbleWidgetViewDelegate>
 @property (nonatomic, strong) ScrobbleWidgetView *widgetView;
 @property (nonatomic, strong) NSTimer *refreshTimer;
@@ -66,6 +79,10 @@
 @property (nonatomic, assign) BOOL isVisible;
 @property (nonatomic, assign) ScrobbleChartPeriod currentPeriod;
 @property (nonatomic, assign) ScrobbleChartType currentType;
+// API result cache keyed by "period_type" (e.g., "7day_albums")
+@property (nonatomic, strong) NSMutableDictionary<NSString*, ScrobbleWidgetCacheEntry*> *resultCache;
+// Streak discovery token for cancellation
+@property (nonatomic, strong, nullable) NSUUID *streakDiscoveryToken;
 @end
 
 @implementation ScrobbleWidgetController
@@ -78,6 +95,7 @@
     self = [super initWithNibName:nil bundle:nil];
     if (self) {
         _loadedImages = [NSMutableDictionary dictionary];
+        _resultCache = [NSMutableDictionary dictionary];
         _currentPeriod = ScrobbleChartPeriodWeekly;
         _currentType = ScrobbleChartTypeAlbums;
     }
@@ -104,6 +122,22 @@
     _widgetView.currentType = _currentType;
     _widgetView.periodTitle = [ScrobbleWidgetView titleForPeriod:_currentPeriod];
     _widgetView.typeTitle = [ScrobbleWidgetView titleForType:_currentType];
+    _widgetView.streakEnabled = scrobble_config::isStreakDisplayEnabled();
+
+    // Set display style from config
+    std::string styleStr = scrobble_config::getWidgetDisplayStyle();
+    if (styleStr == "playback2025") {
+        _widgetView.displayStyle = ScrobbleDisplayStylePlayback2025;
+    } else {
+        _widgetView.displayStyle = ScrobbleDisplayStyleDefault;
+    }
+
+    // Set background settings from config
+    _widgetView.useGlassBackground = scrobble_config::isWidgetGlassBackground();
+    int64_t bgColor = scrobble_config::getWidgetBackgroundColor();
+    if (bgColor != 0) {
+        _widgetView.backgroundColor = [self colorFromARGB:(uint32_t)bgColor];
+    }
 
     // Don't set autoresizingMask - let foobar2000's layout system handle it
     // (matching AlbumArtController behavior which works correctly)
@@ -133,6 +167,22 @@
                                              selector:@selector(scrobbleServiceDidUpdate:)
                                                  name:ScrobbleServiceStateDidChangeNotification
                                                object:nil];
+
+    // Streak and count updates on scrobble
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleScrobbleSubmitted:)
+                                                 name:ScrobbleServiceDidScrobbleNotification
+                                               object:nil];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleAccountChanged:)
+                                                 name:ScrobbleDidChangeAccountNotification
+                                               object:nil];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleSettingsChanged:)
+                                                 name:ScrobbleSettingsDidChangeNotification
+                                               object:nil];
 }
 
 - (void)viewWillAppear {
@@ -143,6 +193,7 @@
     [self updateAuthState];
     if ([[LastFmAuth shared] isAuthenticated]) {
         [self refreshStats];
+        [self startStreakDiscoveryIfNeeded];
     }
 
     // Start refresh timer
@@ -155,6 +206,12 @@
 
     // Stop refresh timer when not visible
     [self stopRefreshTimer];
+
+    // Cancel in-progress streak discovery
+    if (_streakDiscoveryToken) {
+        [[LastFmClient shared] cancelStreakDiscovery:_streakDiscoveryToken];
+        _streakDiscoveryToken = nil;
+    }
 }
 
 #pragma mark - Timer Management
@@ -227,22 +284,6 @@
 
 #pragma mark - Navigation
 
-- (void)navigateToPreviousPeriod {
-    NSInteger index = (NSInteger)_currentPeriod - 1;
-    if (index < 0) {
-        index = ScrobbleChartPeriodCount - 1;
-    }
-    [self switchToPeriod:(ScrobbleChartPeriod)index];
-}
-
-- (void)navigateToNextPeriod {
-    NSInteger index = (NSInteger)_currentPeriod + 1;
-    if (index >= ScrobbleChartPeriodCount) {
-        index = 0;
-    }
-    [self switchToPeriod:(ScrobbleChartPeriod)index];
-}
-
 - (void)switchToPeriod:(ScrobbleChartPeriod)period {
     _currentPeriod = period;
     _widgetView.currentPeriod = period;
@@ -253,22 +294,6 @@
     [_widgetView refreshDisplay];
 
     [self refreshStatsKeepingContent:YES];
-}
-
-- (void)navigateToPreviousType {
-    NSInteger index = (NSInteger)_currentType - 1;
-    if (index < 0) {
-        index = ScrobbleChartTypeCount - 1;
-    }
-    [self switchToType:(ScrobbleChartType)index];
-}
-
-- (void)navigateToNextType {
-    NSInteger index = (NSInteger)_currentType + 1;
-    if (index >= ScrobbleChartTypeCount) {
-        index = 0;
-    }
-    [self switchToType:(ScrobbleChartType)index];
 }
 
 - (void)switchToType:(ScrobbleChartType)type {
@@ -288,6 +313,44 @@
     [self switchToPeriod:page];
 }
 
+#pragma mark - Cache Management
+
+- (NSString *)cacheKeyForPeriod:(ScrobbleChartPeriod)period type:(ScrobbleChartType)type {
+    NSString *periodStr = [ScrobbleWidgetView apiPeriodForPeriod:period];
+    NSString *typeStr = [ScrobbleWidgetView titleForType:type];
+    return [NSString stringWithFormat:@"%@_%@", periodStr, typeStr];
+}
+
+- (ScrobbleWidgetCacheEntry *)cachedEntryForPeriod:(ScrobbleChartPeriod)period type:(ScrobbleChartType)type {
+    NSString *key = [self cacheKeyForPeriod:period type:type];
+    ScrobbleWidgetCacheEntry *entry = _resultCache[key];
+
+    if (!entry) {
+        return nil;
+    }
+
+    // Check if cache is still valid
+    NSTimeInterval cacheDuration = scrobble_config::getWidgetCacheDuration();
+    NSTimeInterval age = [[NSDate date] timeIntervalSinceDate:entry.timestamp];
+
+    if (age > cacheDuration) {
+        // Cache expired
+        [_resultCache removeObjectForKey:key];
+        return nil;
+    }
+
+    return entry;
+}
+
+- (void)cacheEntry:(ScrobbleWidgetCacheEntry *)entry forPeriod:(ScrobbleChartPeriod)period type:(ScrobbleChartType)type {
+    NSString *key = [self cacheKeyForPeriod:period type:type];
+    _resultCache[key] = entry;
+}
+
+- (void)invalidateCache {
+    [_resultCache removeAllObjects];
+}
+
 #pragma mark - Data Loading
 
 - (void)refreshStats {
@@ -295,6 +358,10 @@
 }
 
 - (void)refreshStatsKeepingContent:(BOOL)keepContent {
+    [self refreshStatsKeepingContent:keepContent forceRefresh:NO];
+}
+
+- (void)refreshStatsKeepingContent:(BOOL)keepContent forceRefresh:(BOOL)forceRefresh {
     if (!scrobble_config::isWidgetStatsEnabled()) {
         _widgetView.isRefreshing = NO;
         _widgetView.state = ScrobbleWidgetStateEmpty;
@@ -310,6 +377,34 @@
         return;
     }
 
+    // Check cache first (unless force refresh)
+    if (!forceRefresh) {
+        ScrobbleWidgetCacheEntry *cached = [self cachedEntryForPeriod:_currentPeriod type:_currentType];
+        if (cached) {
+            NSLog(@"[ScrobbleWidget] Using cached data for %@", [self cacheKeyForPeriod:_currentPeriod type:_currentType]);
+            _widgetView.isRefreshing = NO;
+            _widgetView.topAlbums = cached.albums;
+            _widgetView.scrobbledToday = cached.scrobbledToday;
+            _widgetView.lastUpdated = cached.timestamp;
+            _widgetView.albumImages = cached.albumImages;
+            [_loadedImages removeAllObjects];
+            if (cached.albumImages) {
+                [_loadedImages addEntriesFromDictionary:cached.albumImages];
+            }
+
+            if (cached.albums.count > 0) {
+                _widgetView.state = ScrobbleWidgetStateReady;
+            } else {
+                _widgetView.state = ScrobbleWidgetStateEmpty;
+            }
+            [_widgetView refreshDisplay];
+
+            // Update queue status (always current)
+            [self updateQueueStatus];
+            return;
+        }
+    }
+
     // Only show full loading state if not keeping content
     if (!keepContent) {
         _widgetView.state = ScrobbleWidgetStateLoading;
@@ -319,27 +414,31 @@
     NSString *username = auth.username;
     NSInteger maxAlbums = scrobble_config::getWidgetMaxAlbums();
     NSString *period = [ScrobbleWidgetView apiPeriodForPeriod:_currentPeriod];
+    ScrobbleChartPeriod fetchPeriod = _currentPeriod;
+    ScrobbleChartType fetchType = _currentType;
 
-    // TODO: Support Artists and Tracks types - for now always fetch albums
-    // Fetch top albums for current period
-    [[LastFmClient shared] fetchTopAlbums:username
-                                   period:period
-                                    limit:maxAlbums
-                               completion:^(NSArray<TopAlbum *> *albums, NSError *error) {
+    // Fetch top items for current period and type
+    LastFmTopAlbumsCompletion fetchCompletion = ^(NSArray<TopAlbum *> *albums, NSError *error) {
         // Clear refreshing state
         self.widgetView.isRefreshing = NO;
 
         if (error) {
-            self.widgetView.state = ScrobbleWidgetStateError;
-            self.widgetView.errorMessage = error.localizedDescription;
+            // Only show full-screen error if we have NO data at all
+            if (self.widgetView.topAlbums.count == 0) {
+                self.widgetView.state = ScrobbleWidgetStateError;
+                self.widgetView.errorMessage = error.localizedDescription;
+            } else {
+                // Have data - show error in footer instead, keep showing data
+                self.widgetView.state = ScrobbleWidgetStateReady;
+                self.widgetView.errorMessage = [NSString stringWithFormat:@"Refresh failed: %@",
+                    error.localizedDescription];
+            }
             [self.widgetView refreshDisplay];
             return;
         }
 
-        // Clear old images when content changes
-        [self.loadedImages removeAllObjects];
-        self.widgetView.albumImages = nil;
-
+        // Success - clear any previous error
+        self.widgetView.errorMessage = nil;
         self.widgetView.topAlbums = albums;
         self.widgetView.lastUpdated = [NSDate date];
 
@@ -349,20 +448,38 @@
             self.widgetView.state = ScrobbleWidgetStateEmpty;
         }
 
-        [self.widgetView refreshDisplay];
+        // Reset image state completely for new content
+        [self.loadedImages removeAllObjects];
+        self.widgetView.albumImages = nil;
 
-        // Load album images asynchronously
-        [self loadAlbumImages:albums];
-    }];
+        // Populate from cache and update view
+        [self loadAlbumImages:albums forPeriod:fetchPeriod type:fetchType];
+
+        // Display with whatever images we have from cache
+        [self.widgetView refreshDisplay];
+    };
+
+    switch (fetchType) {
+        case ScrobbleChartTypeArtists:
+            [[LastFmClient shared] fetchTopArtists:username period:period limit:maxAlbums completion:fetchCompletion];
+            break;
+        case ScrobbleChartTypeTracks:
+            [[LastFmClient shared] fetchTopTracks:username period:period limit:maxAlbums completion:fetchCompletion];
+            break;
+        case ScrobbleChartTypeAlbums:
+        default:
+            [[LastFmClient shared] fetchTopAlbums:username period:period limit:maxAlbums completion:fetchCompletion];
+            break;
+    }
 
     // Fetch scrobbled today count
-    [self fetchScrobbledTodayCount:username];
+    [self fetchScrobbledTodayCount:username forPeriod:fetchPeriod type:fetchType];
 
     // Update queue status
     [self updateQueueStatus];
 }
 
-- (void)fetchScrobbledTodayCount:(NSString *)username {
+- (void)fetchScrobbledTodayCount:(NSString *)username forPeriod:(ScrobbleChartPeriod)period type:(ScrobbleChartType)type {
     // Get midnight today (local time)
     NSCalendar *calendar = [NSCalendar currentCalendar];
     NSDate *now = [NSDate date];
@@ -379,12 +496,41 @@
         if (!error) {
             self.widgetView.scrobbledToday = count;
             [self.widgetView refreshDisplay];
+
+            // Update or create cache entry with scrobbled today count
+            ScrobbleWidgetCacheEntry *entry = [self cachedEntryForPeriod:period type:type];
+            if (entry) {
+                entry.scrobbledToday = count;
+            }
         }
     }];
 }
 
-- (void)loadAlbumImages:(NSArray<TopAlbum *> *)albums {
+- (void)loadAlbumImages:(NSArray<TopAlbum *> *)albums forPeriod:(ScrobbleChartPeriod)period type:(ScrobbleChartType)type {
+    // Create cache entry for this fetch
+    ScrobbleWidgetCacheEntry *cacheEntry = [[ScrobbleWidgetCacheEntry alloc] init];
+    cacheEntry.albums = albums;
+    cacheEntry.timestamp = [NSDate date];
+    cacheEntry.scrobbledToday = _widgetView.scrobbledToday;
+    [self cacheEntry:cacheEntry forPeriod:period type:type];
+
+    BOOL needsArtistScraping = (type == ScrobbleChartTypeArtists);
+    BOOL needsAlbumImageForTracks = (type == ScrobbleChartTypeTracks);
+
     for (TopAlbum *album in albums) {
+        // For artists without API images, try scraping from website
+        if (needsArtistScraping && !album.imageURL && album.artist.length > 0) {
+            [self scrapeAndLoadArtistImage:album forPeriod:period type:type];
+            continue;
+        }
+
+        // For tracks without API images, fetch track info to get album image
+        // Note: user.getTopTracks doesn't return album info, so we need track.getInfo
+        if (needsAlbumImageForTracks && !album.imageURL) {
+            [self fetchTrackImageViaTrackInfo:album forPeriod:period type:type];
+            continue;
+        }
+
         if (!album.imageURL) continue;
 
         // Check cache first
@@ -407,6 +553,12 @@
                         [self.loadedImages setObject:image forKey:url];
                         self.widgetView.albumImages = [self.loadedImages copy];
                         [self.widgetView refreshDisplay];
+
+                        // Update cache entry with loaded images
+                        ScrobbleWidgetCacheEntry *entry = [self cachedEntryForPeriod:period type:type];
+                        if (entry) {
+                            entry.albumImages = [self.loadedImages copy];
+                        }
                     });
                 }
             }
@@ -417,29 +569,142 @@
     if (_loadedImages.count > 0) {
         _widgetView.albumImages = [_loadedImages copy];
         [_widgetView refreshDisplay];
+
+        // Update cache entry with loaded images
+        cacheEntry.albumImages = [_loadedImages copy];
     }
+}
+
+- (void)scrapeAndLoadArtistImage:(TopAlbum *)album forPeriod:(ScrobbleChartPeriod)period type:(ScrobbleChartType)type {
+    NSString *artistName = album.artist;
+    if (!artistName || artistName.length == 0) return;
+
+    [[LastFmClient shared] scrapeArtistImageURL:artistName completion:^(NSURL *imageURL, NSError *error) {
+        if (!imageURL) return;
+
+        // Store the scraped URL in the album object for future reference
+        album.imageURL = imageURL;
+
+        // Check if already in cache
+        NSImage *cached = [[ScrobbleWidgetImageCache shared] cachedImageForURL:imageURL];
+        if (cached) {
+            [self.loadedImages setObject:cached forKey:imageURL];
+            self.widgetView.albumImages = [self.loadedImages copy];
+            [self.widgetView refreshDisplay];
+            return;
+        }
+
+        // Load the image
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSData *data = [NSData dataWithContentsOfURL:imageURL];
+            if (data) {
+                NSImage *image = [[NSImage alloc] initWithData:data];
+                if (image) {
+                    [[ScrobbleWidgetImageCache shared] cacheImage:image forURL:imageURL];
+
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self.loadedImages setObject:image forKey:imageURL];
+                        self.widgetView.albumImages = [self.loadedImages copy];
+                        [self.widgetView refreshDisplay];
+
+                        // Update cache entry
+                        ScrobbleWidgetCacheEntry *entry = [self cachedEntryForPeriod:period type:type];
+                        if (entry) {
+                            entry.albumImages = [self.loadedImages copy];
+                        }
+                    });
+                }
+            }
+        });
+    }];
+}
+
+- (void)fetchTrackImageViaTrackInfo:(TopAlbum *)track forPeriod:(ScrobbleChartPeriod)period type:(ScrobbleChartType)type {
+    NSString *artistName = track.artist;
+    NSString *trackName = track.name;
+    if (!artistName || artistName.length == 0 || !trackName || trackName.length == 0) return;
+
+    // Use track.getInfo to get album name and image (user.getTopTracks doesn't provide album info)
+    [[LastFmClient shared] fetchTrackInfo:artistName track:trackName completion:^(NSString *albumName, NSURL *imageURL, NSError *error) {
+        if (!imageURL) return;
+
+        // Store album name and image URL in the track object
+        if (albumName) {
+            track.albumName = albumName;
+        }
+        track.imageURL = imageURL;
+
+        // Check if already in cache
+        NSImage *cached = [[ScrobbleWidgetImageCache shared] cachedImageForURL:imageURL];
+        if (cached) {
+            [self.loadedImages setObject:cached forKey:imageURL];
+            self.widgetView.albumImages = [self.loadedImages copy];
+            [self.widgetView refreshDisplay];
+            return;
+        }
+
+        // Load the image
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSData *data = [NSData dataWithContentsOfURL:imageURL];
+            if (data) {
+                NSImage *image = [[NSImage alloc] initWithData:data];
+                if (image) {
+                    [[ScrobbleWidgetImageCache shared] cacheImage:image forURL:imageURL];
+
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self.loadedImages setObject:image forKey:imageURL];
+                        self.widgetView.albumImages = [self.loadedImages copy];
+                        [self.widgetView refreshDisplay];
+
+                        // Update cache entry
+                        ScrobbleWidgetCacheEntry *entry = [self cachedEntryForPeriod:period type:type];
+                        if (entry) {
+                            entry.albumImages = [self.loadedImages copy];
+                        }
+                    });
+                }
+            }
+        });
+    }];
 }
 
 #pragma mark - ScrobbleWidgetViewDelegate
 
 - (void)widgetViewRequestsRefresh:(ScrobbleWidgetView *)view {
-    [self refreshStats];
+    // User-initiated refresh bypasses cache
+    [self refreshStatsKeepingContent:NO forceRefresh:YES];
 }
 
 - (void)widgetViewNavigatePreviousPeriod:(ScrobbleWidgetView *)view {
-    [self navigateToPreviousPeriod];
+    ScrobbleChartPeriod prev = (_currentPeriod == 0)
+        ? (ScrobbleChartPeriod)(ScrobbleChartPeriodCount - 1)
+        : (ScrobbleChartPeriod)(_currentPeriod - 1);
+    [self switchToPeriod:prev];
 }
 
 - (void)widgetViewNavigateNextPeriod:(ScrobbleWidgetView *)view {
-    [self navigateToNextPeriod];
+    ScrobbleChartPeriod next = (ScrobbleChartPeriod)((_currentPeriod + 1) % ScrobbleChartPeriodCount);
+    [self switchToPeriod:next];
 }
 
 - (void)widgetViewNavigatePreviousType:(ScrobbleWidgetView *)view {
-    [self navigateToPreviousType];
+    ScrobbleChartType prev = (_currentType == 0)
+        ? (ScrobbleChartType)(ScrobbleChartTypeCount - 1)
+        : (ScrobbleChartType)(_currentType - 1);
+    [self switchToType:prev];
 }
 
 - (void)widgetViewNavigateNextType:(ScrobbleWidgetView *)view {
-    [self navigateToNextType];
+    ScrobbleChartType next = (ScrobbleChartType)((_currentType + 1) % ScrobbleChartTypeCount);
+    [self switchToType:next];
+}
+
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectPeriod:(ScrobbleChartPeriod)period {
+    [self switchToPeriod:period];
+}
+
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectType:(ScrobbleChartType)type {
+    [self switchToType:type];
 }
 
 - (void)widgetViewOpenLastFmProfile:(ScrobbleWidgetView *)view {
@@ -540,6 +805,31 @@
     periodItem.submenu = periodSubmenu;
     [menu addItem:periodItem];
 
+    // Display style submenu
+    NSMenuItem *styleItem = [[NSMenuItem alloc] initWithTitle:@"Display Style"
+                                                       action:nil
+                                                keyEquivalent:@""];
+    NSMenu *styleSubmenu = [[NSMenu alloc] init];
+
+    std::string currentStyle = scrobble_config::getWidgetDisplayStyle();
+
+    NSMenuItem *defaultStyleItem = [[NSMenuItem alloc] initWithTitle:@"Grid (Default)"
+                                                              action:@selector(menuSelectDefaultStyle:)
+                                                       keyEquivalent:@""];
+    defaultStyleItem.target = self;
+    defaultStyleItem.state = (currentStyle != "playback2025") ? NSControlStateValueOn : NSControlStateValueOff;
+    [styleSubmenu addItem:defaultStyleItem];
+
+    NSMenuItem *bubbleStyleItem = [[NSMenuItem alloc] initWithTitle:@"Bubbles (Playback 2025)"
+                                                             action:@selector(menuSelectBubbleStyle:)
+                                                      keyEquivalent:@""];
+    bubbleStyleItem.target = self;
+    bubbleStyleItem.state = (currentStyle == "playback2025") ? NSControlStateValueOn : NSControlStateValueOff;
+    [styleSubmenu addItem:bubbleStyleItem];
+
+    styleItem.submenu = styleSubmenu;
+    [menu addItem:styleItem];
+
     [menu addItem:[NSMenuItem separatorItem]];
 
     // Refresh
@@ -565,7 +855,8 @@
 #pragma mark - Menu Actions
 
 - (void)menuRefresh:(id)sender {
-    [self refreshStats];
+    // Menu-initiated refresh bypasses cache
+    [self refreshStatsKeepingContent:NO forceRefresh:YES];
 }
 
 - (void)menuToggleStats:(id)sender {
@@ -584,6 +875,206 @@
 
 - (void)menuSelectOverall:(id)sender {
     [self switchToPage:ScrobbleChartPageOverall];
+}
+
+- (void)menuSelectDefaultStyle:(id)sender {
+    scrobble_config::setWidgetDisplayStyle("default");
+    [_widgetView setDisplayStyle:ScrobbleDisplayStyleDefault animated:YES];
+}
+
+- (void)menuSelectBubbleStyle:(id)sender {
+    scrobble_config::setWidgetDisplayStyle("playback2025");
+    [_widgetView setDisplayStyle:ScrobbleDisplayStylePlayback2025 animated:YES];
+}
+
+#pragma mark - Streak Management
+
+- (void)startStreakDiscoveryIfNeeded {
+    LastFmAuth *auth = [LastFmAuth shared];
+    if (!auth.isAuthenticated || !auth.username) {
+        return;
+    }
+
+    ScrobbleStreakCache *cache = [ScrobbleStreakCache shared];
+
+    // Update display with cached values first
+    [self updateStreakDisplay];
+
+    // Check if we need to start discovery
+    if (![cache needsMoreDiscovery] && [cache isValid]) {
+        NSLog(@"[ScrobbleWidget] Streak cache valid, skipping discovery");
+        return;
+    }
+
+    // Don't start if already running
+    if (_streakDiscoveryToken) {
+        NSLog(@"[ScrobbleWidget] Streak discovery already in progress");
+        return;
+    }
+
+    NSLog(@"[ScrobbleWidget] Starting streak discovery for %@", auth.username);
+    cache.discoveryInProgress = YES;
+    [cache setDiscoveryToken:nil];  // Will be set when we get the token
+
+    __weak typeof(self) weakSelf = self;
+    _streakDiscoveryToken = [[LastFmClient shared] startStreakDiscovery:auth.username
+        progress:^(NSInteger currentStreak, BOOL isComplete, NSInteger daysChecked) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+
+            // Update cache with progress
+            ScrobbleStreakCache *progressCache = [ScrobbleStreakCache shared];
+            progressCache.streakDays = currentStreak;
+            progressCache.lastCheckedDay = daysChecked;
+
+            // Update UI
+            [strongSelf updateStreakDisplay];
+        }
+        completion:^(NSInteger streakDays, BOOL scrobbledToday, BOOL isComplete,
+                    NSDate * _Nullable calculatedAt, NSError * _Nullable error) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+
+            strongSelf.streakDiscoveryToken = nil;
+
+            ScrobbleStreakCache *completeCache = [ScrobbleStreakCache shared];
+            completeCache.discoveryInProgress = NO;
+            [completeCache setDiscoveryToken:nil];
+
+            if (error && error.code != NSUserCancelledError) {
+                NSLog(@"[ScrobbleWidget] Streak discovery error: %@", error.localizedDescription);
+                // Keep any partial results, just stop discovery state
+            } else if (!error) {
+                NSLog(@"[ScrobbleWidget] Streak discovery complete: %ld days, scrobbledToday=%d, complete=%d",
+                      (long)streakDays, scrobbledToday, isComplete);
+
+                completeCache.streakDays = streakDays;
+                completeCache.scrobbledToday = scrobbledToday;
+                completeCache.isDiscoveryComplete = isComplete;
+                completeCache.calculatedAt = calculatedAt;
+
+                // Store current timezone for validity checking
+                completeCache.calculatedTimezone = [NSTimeZone localTimeZone];
+
+                // Calculate today midnight for day rollover detection
+                NSCalendar *calendar = [NSCalendar currentCalendar];
+                NSDateComponents *components = [calendar components:(NSCalendarUnitYear |
+                                                                     NSCalendarUnitMonth |
+                                                                     NSCalendarUnitDay)
+                                                           fromDate:[NSDate date]];
+                completeCache.todayMidnight = [calendar dateFromComponents:components];
+            }
+
+            [strongSelf updateStreakDisplay];
+        }];
+
+    // Store token in cache for external cancellation reference
+    [cache setDiscoveryToken:_streakDiscoveryToken];
+}
+
+- (void)handleScrobbleSubmitted:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Optimistic update: user just scrobbled, so they've scrobbled today
+        ScrobbleStreakCache *cache = [ScrobbleStreakCache shared];
+
+        if (!cache.scrobbledToday) {
+            // Was at risk, now saved - streak continues
+            cache.scrobbledToday = YES;
+            NSLog(@"[ScrobbleWidget] Optimistic streak update: user scrobbled today");
+        }
+
+        // Increment scrobbled today count
+        // Check if notification has accepted count (from ScrobbleServiceDidScrobbleNotification)
+        NSNumber *accepted = notification.userInfo[@"accepted"];
+        if (accepted) {
+            self.widgetView.scrobbledToday += [accepted integerValue];
+            NSLog(@"[ScrobbleWidget] Scrobbled today: %ld (+%ld)",
+                  (long)self.widgetView.scrobbledToday, (long)[accepted integerValue]);
+        } else {
+            // Fallback: assume 1 track
+            self.widgetView.scrobbledToday += 1;
+        }
+
+        [self updateStreakDisplay];
+        [self.widgetView refreshDisplay];
+    });
+}
+
+- (void)handleAccountChanged:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Cancel any in-progress discovery
+        if (self.streakDiscoveryToken) {
+            [[LastFmClient shared] cancelStreakDiscovery:self.streakDiscoveryToken];
+            self.streakDiscoveryToken = nil;
+        }
+
+        // Invalidate streak cache
+        [[ScrobbleStreakCache shared] invalidate];
+
+        // Clear streak display
+        self.widgetView.streakDays = 0;
+        self.widgetView.streakNeedsContinuation = NO;
+        self.widgetView.streakDiscoveryInProgress = NO;
+        self.widgetView.streakDaysChecked = 0;
+        [self.widgetView refreshDisplay];
+
+        // Start fresh discovery if still authenticated
+        if ([[LastFmAuth shared] isAuthenticated]) {
+            [self startStreakDiscoveryIfNeeded];
+        }
+    });
+}
+
+- (void)updateStreakDisplay {
+    ScrobbleStreakCache *cache = [ScrobbleStreakCache shared];
+
+    _widgetView.streakDays = cache.streakDays;
+    _widgetView.streakNeedsContinuation = (!cache.scrobbledToday && cache.streakDays > 0);
+    _widgetView.streakDiscoveryInProgress = cache.discoveryInProgress;
+    _widgetView.streakDaysChecked = cache.lastCheckedDay;
+
+    [_widgetView refreshDisplay];
+}
+
+- (void)handleSettingsChanged:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *setting = notification.userInfo[@"setting"];
+
+        if ([setting isEqualToString:@"displayStyle"]) {
+            // Update display style with animation
+            std::string styleStr = scrobble_config::getWidgetDisplayStyle();
+            ScrobbleDisplayStyle newStyle = (styleStr == "playback2025")
+                ? ScrobbleDisplayStylePlayback2025
+                : ScrobbleDisplayStyleDefault;
+            [self.widgetView setDisplayStyle:newStyle animated:YES];
+        } else if ([setting isEqualToString:@"streakDisplay"]) {
+            // Update streak display
+            self.widgetView.streakEnabled = scrobble_config::isStreakDisplayEnabled();
+            [self.widgetView refreshDisplay];
+        } else if ([setting isEqualToString:@"glassBackground"]) {
+            // Update glass background
+            self.widgetView.useGlassBackground = scrobble_config::isWidgetGlassBackground();
+            [self.widgetView refreshDisplay];
+        } else if ([setting isEqualToString:@"backgroundColor"]) {
+            // Update background color
+            int64_t argb = scrobble_config::getWidgetBackgroundColor();
+            if (argb != 0) {
+                self.widgetView.backgroundColor = [self colorFromARGB:(uint32_t)argb];
+            } else {
+                self.widgetView.backgroundColor = nil;  // Use system default
+            }
+            [self.widgetView refreshDisplay];
+        }
+    });
+}
+
+#pragma mark - Color Conversion
+
+- (NSColor *)colorFromARGB:(uint32_t)argb {
+    return [NSColor colorWithRed:((argb >> 16) & 0xFF) / 255.0
+                           green:((argb >> 8) & 0xFF) / 255.0
+                            blue:(argb & 0xFF) / 255.0
+                           alpha:((argb >> 24) & 0xFF) / 255.0];
 }
 
 @end

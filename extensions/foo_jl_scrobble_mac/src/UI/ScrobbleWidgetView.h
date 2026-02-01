@@ -14,21 +14,6 @@ NS_ASSUME_NONNULL_BEGIN
 @class TopAlbum;
 @class ScrobbleWidgetView;
 
-@protocol ScrobbleWidgetViewDelegate <NSObject>
-@optional
-- (void)widgetViewRequestsRefresh:(ScrobbleWidgetView *)view;
-- (void)widgetViewRequestsContextMenu:(ScrobbleWidgetView *)view atPoint:(NSPoint)point;
-- (void)widgetViewOpenLastFmProfile:(ScrobbleWidgetView *)view;
-// Period navigation (Weekly/Monthly/All Time)
-- (void)widgetViewNavigatePreviousPeriod:(ScrobbleWidgetView *)view;
-- (void)widgetViewNavigateNextPeriod:(ScrobbleWidgetView *)view;
-// Type navigation (Albums/Artists/Tracks)
-- (void)widgetViewNavigatePreviousType:(ScrobbleWidgetView *)view;
-- (void)widgetViewNavigateNextType:(ScrobbleWidgetView *)view;
-// Album click
-- (void)widgetView:(ScrobbleWidgetView *)view didClickAlbumAtIndex:(NSInteger)index;
-@end
-
 /// View state for the widget
 typedef NS_ENUM(NSInteger, ScrobbleWidgetState) {
     ScrobbleWidgetStateLoading,      // Initial load in progress
@@ -54,12 +39,37 @@ typedef NS_ENUM(NSInteger, ScrobbleChartType) {
     ScrobbleChartTypeCount           // Sentinel for counting
 };
 
+/// Widget display styles
+typedef NS_ENUM(NSInteger, ScrobbleDisplayStyle) {
+    ScrobbleDisplayStyleDefault = 0,     // Grid layout with square album art
+    ScrobbleDisplayStylePlayback2025     // Bubble layout with circular images
+};
+
 // Legacy aliases for compatibility
 typedef ScrobbleChartPeriod ScrobbleChartPage;
 #define ScrobbleChartPageWeekly ScrobbleChartPeriodWeekly
 #define ScrobbleChartPageMonthly ScrobbleChartPeriodMonthly
 #define ScrobbleChartPageOverall ScrobbleChartPeriodOverall
 #define ScrobbleChartPageCount ScrobbleChartPeriodCount
+
+@protocol ScrobbleWidgetViewDelegate <NSObject>
+@optional
+- (void)widgetViewRequestsRefresh:(ScrobbleWidgetView *)view;
+- (void)widgetViewRequestsContextMenu:(ScrobbleWidgetView *)view atPoint:(NSPoint)point;
+- (void)widgetViewOpenLastFmProfile:(ScrobbleWidgetView *)view;
+// Period navigation (arrows)
+- (void)widgetViewNavigatePreviousPeriod:(ScrobbleWidgetView *)view;
+- (void)widgetViewNavigateNextPeriod:(ScrobbleWidgetView *)view;
+// Type navigation (arrows)
+- (void)widgetViewNavigatePreviousType:(ScrobbleWidgetView *)view;
+- (void)widgetViewNavigateNextType:(ScrobbleWidgetView *)view;
+// Period selection (Weekly/Monthly/All Time)
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectPeriod:(ScrobbleChartPeriod)period;
+// Type selection (Albums/Artists/Tracks)
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectType:(ScrobbleChartType)type;
+// Album click
+- (void)widgetView:(ScrobbleWidgetView *)view didClickAlbumAtIndex:(NSInteger)index;
+@end
 
 @interface ScrobbleWidgetView : NSView
 
@@ -89,20 +99,34 @@ typedef ScrobbleChartPeriod ScrobbleChartPage;
 @property (nonatomic, strong, nullable) NSDictionary<NSURL*, NSImage*> *albumImages;  // Loaded images by URL
 @property (nonatomic, assign) NSInteger maxAlbums;  // Max albums to show (for scaling)
 
-// Navigation arrows
-@property (nonatomic, assign) BOOL canNavigatePrevious;
-@property (nonatomic, assign) BOOL canNavigateNext;
 
 // Status info
 @property (nonatomic, assign) NSInteger scrobbledToday;
 @property (nonatomic, assign) NSInteger queueCount;
 @property (nonatomic, strong, nullable) NSDate *lastUpdated;
 
+// Streak info
+@property (nonatomic, assign) NSInteger streakDays;               // Current streak length (0 = no streak)
+@property (nonatomic, assign) BOOL streakNeedsContinuation;       // No scrobbles today, streak at risk
+@property (nonatomic, assign) BOOL streakDiscoveryInProgress;     // Discovery still running
+@property (nonatomic, assign) NSInteger streakDaysChecked;        // Days checked so far (for progress)
+@property (nonatomic, assign) BOOL streakEnabled;                 // Whether streak display is enabled
+
+// Display style
+@property (nonatomic, assign) ScrobbleDisplayStyle displayStyle;  // Grid or bubble layout
+
+// Background settings
+@property (nonatomic, strong, nullable) NSColor *backgroundColor;  // Custom background (nil = system default)
+@property (nonatomic, assign) BOOL useGlassBackground;             // Use NSVisualEffectView
+
 // Loading overlay - keeps content visible while refreshing
 @property (nonatomic, assign) BOOL isRefreshing;
 
 // Update UI with current data
 - (void)refreshDisplay;
+
+// Set display style with optional animation
+- (void)setDisplayStyle:(ScrobbleDisplayStyle)style animated:(BOOL)animated;
 
 // Get API period string
 + (NSString *)apiPeriodForPeriod:(ScrobbleChartPeriod)period;

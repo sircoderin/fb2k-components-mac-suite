@@ -27,14 +27,18 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 @property (nonatomic, strong) NSMutableArray<NSValue *> *albumRects;  // Store album rects for hit testing
 @property (nonatomic, assign) NSRect profileLinkRect;  // Last.fm link button rect
 @property (nonatomic, assign) BOOL isOverProfileLink;
-// Period row navigation
-@property (nonatomic, assign) NSRect periodRowRect;
-@property (nonatomic, assign) BOOL isOverPeriodLeftArrow;
-@property (nonatomic, assign) BOOL isOverPeriodRightArrow;
-// Type row navigation
-@property (nonatomic, assign) NSRect typeRowRect;
-@property (nonatomic, assign) BOOL isOverTypeLeftArrow;
-@property (nonatomic, assign) BOOL isOverTypeRightArrow;
+// Period/Type dropdown pill rects
+@property (nonatomic, assign) NSRect periodPillRect;
+@property (nonatomic, assign) BOOL isOverPeriodPill;
+@property (nonatomic, assign) NSRect typePillRect;
+@property (nonatomic, assign) BOOL isOverTypePill;
+// Reload button
+@property (nonatomic, assign) NSRect reloadButtonRect;
+@property (nonatomic, assign) BOOL isOverReloadButton;
+// Animation state
+@property (nonatomic, assign) BOOL isAnimatingTransition;
+// Glass effect
+@property (nonatomic, strong, nullable) NSVisualEffectView *glassEffectView;
 @end
 
 @implementation ScrobbleWidgetView
@@ -47,8 +51,6 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         _scrobbledToday = 0;
         _queueCount = 0;
         _arrowOpacity = 0.0;
-        _canNavigatePrevious = YES;  // Always allow navigation
-        _canNavigateNext = YES;
         _currentPeriod = ScrobbleChartPeriodWeekly;
         _currentType = ScrobbleChartTypeAlbums;
         _periodTitle = [ScrobbleWidgetView titleForPeriod:_currentPeriod];
@@ -70,13 +72,13 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 
 // Don't constrain intrinsic size - let layout system decide
 - (NSSize)intrinsicContentSize {
-    NSLog(@"[ScrobbleWidget] intrinsicContentSize called - returning NoIntrinsicMetric");
+    // Intentionally returns no intrinsic size - let layout system decide
     return NSMakeSize(NSViewNoIntrinsicMetric, NSViewNoIntrinsicMetric);
 }
 
 // Override fittingSize to not constrain layout
 - (NSSize)fittingSize {
-    NSLog(@"[ScrobbleWidget] fittingSize called - returning bounds size: %@", NSStringFromSize(self.bounds.size));
+    // Return current bounds - let layout system control sizing
     return self.bounds.size;
 }
 
@@ -102,6 +104,27 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 
 - (void)setChartTitle:(NSString *)chartTitle {
     // Parse or ignore - use periodTitle and typeTitle instead
+}
+
+#pragma mark - Background Settings
+
+- (void)setUseGlassBackground:(BOOL)useGlassBackground {
+    if (_useGlassBackground == useGlassBackground) return;
+    _useGlassBackground = useGlassBackground;
+
+    if (useGlassBackground) {
+        if (!_glassEffectView) {
+            _glassEffectView = [[NSVisualEffectView alloc] initWithFrame:self.bounds];
+            _glassEffectView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            _glassEffectView.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+            _glassEffectView.material = NSVisualEffectMaterialSidebar;
+            _glassEffectView.state = NSVisualEffectStateActive;
+        }
+        [self addSubview:_glassEffectView positioned:NSWindowBelow relativeTo:nil];
+    } else {
+        [_glassEffectView removeFromSuperview];
+    }
+    [self setNeedsDisplay:YES];
 }
 
 #pragma mark - Class Methods
@@ -255,7 +278,6 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 
 - (void)mouseEntered:(NSEvent *)event {
     _isHovered = YES;
-    NSLog(@"[ScrobbleWidget] mouseEntered - bounds: %@", NSStringFromRect(self.bounds));
     [self animateArrowOpacity:1.0];
 }
 
@@ -263,10 +285,8 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     _isHovered = NO;
     _hoveredAlbumIndex = -1;
     _isOverProfileLink = NO;
-    _isOverPeriodLeftArrow = NO;
-    _isOverPeriodRightArrow = NO;
-    _isOverTypeLeftArrow = NO;
-    _isOverTypeRightArrow = NO;
+    _isOverPeriodPill = NO;
+    _isOverTypePill = NO;
     [self animateArrowOpacity:0.0];
     [self setNeedsDisplay:YES];
 }
@@ -276,39 +296,21 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 
     NSInteger oldHoveredAlbum = _hoveredAlbumIndex;
     BOOL wasOverProfileLink = _isOverProfileLink;
-    BOOL wasOverPeriodLeft = _isOverPeriodLeftArrow;
-    BOOL wasOverPeriodRight = _isOverPeriodRightArrow;
-    BOOL wasOverTypeLeft = _isOverTypeLeftArrow;
-    BOOL wasOverTypeRight = _isOverTypeRightArrow;
+    BOOL wasOverPeriod = _isOverPeriodPill;
+    BOOL wasOverType = _isOverTypePill;
+    BOOL wasOverReload = _isOverReloadButton;
 
     // Check if over profile link button
     _isOverProfileLink = !NSIsEmptyRect(_profileLinkRect) && NSPointInRect(location, _profileLinkRect);
 
-    // Check period navigation (pill-shaped control)
-    _isOverPeriodLeftArrow = NO;
-    _isOverPeriodRightArrow = NO;
-    if (!NSIsEmptyRect(_periodRowRect) && NSPointInRect(location, _periodRowRect)) {
-        CGFloat thirdWidth = _periodRowRect.size.width / 3;
-        CGFloat relX = location.x - _periodRowRect.origin.x;
-        if (relX < thirdWidth) {
-            _isOverPeriodLeftArrow = YES;
-        } else if (relX > thirdWidth * 2) {
-            _isOverPeriodRightArrow = YES;
-        }
-    }
+    // Check reload button
+    _isOverReloadButton = !NSIsEmptyRect(_reloadButtonRect) && NSPointInRect(location, _reloadButtonRect);
 
-    // Check type navigation (pill-shaped control)
-    _isOverTypeLeftArrow = NO;
-    _isOverTypeRightArrow = NO;
-    if (!NSIsEmptyRect(_typeRowRect) && NSPointInRect(location, _typeRowRect)) {
-        CGFloat thirdWidth = _typeRowRect.size.width / 3;
-        CGFloat relX = location.x - _typeRowRect.origin.x;
-        if (relX < thirdWidth) {
-            _isOverTypeLeftArrow = YES;
-        } else if (relX > thirdWidth * 2) {
-            _isOverTypeRightArrow = YES;
-        }
-    }
+    // Check period pill
+    _isOverPeriodPill = !NSIsEmptyRect(_periodPillRect) && NSPointInRect(location, _periodPillRect);
+
+    // Check type pill
+    _isOverTypePill = !NSIsEmptyRect(_typePillRect) && NSPointInRect(location, _typePillRect);
 
     // Check which album is being hovered
     _hoveredAlbumIndex = -1;
@@ -321,8 +323,8 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     }
 
     if (oldHoveredAlbum != _hoveredAlbumIndex || wasOverProfileLink != _isOverProfileLink ||
-        wasOverPeriodLeft != _isOverPeriodLeftArrow || wasOverPeriodRight != _isOverPeriodRightArrow ||
-        wasOverTypeLeft != _isOverTypeLeftArrow || wasOverTypeRight != _isOverTypeRightArrow) {
+        wasOverPeriod != _isOverPeriodPill || wasOverType != _isOverTypePill ||
+        wasOverReload != _isOverReloadButton) {
         [self setNeedsDisplay:YES];
     }
 }
@@ -338,31 +340,23 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         return;
     }
 
-    // Check period row navigation
-    if (_isOverPeriodLeftArrow) {
-        if ([_delegate respondsToSelector:@selector(widgetViewNavigatePreviousPeriod:)]) {
-            [_delegate widgetViewNavigatePreviousPeriod:self];
-        }
-        return;
-    }
-    if (_isOverPeriodRightArrow) {
-        if ([_delegate respondsToSelector:@selector(widgetViewNavigateNextPeriod:)]) {
-            [_delegate widgetViewNavigateNextPeriod:self];
+    // Check if clicking on reload button
+    if (!NSIsEmptyRect(_reloadButtonRect) && NSPointInRect(location, _reloadButtonRect)) {
+        if ([_delegate respondsToSelector:@selector(widgetViewRequestsRefresh:)]) {
+            [_delegate widgetViewRequestsRefresh:self];
         }
         return;
     }
 
-    // Check type row navigation
-    if (_isOverTypeLeftArrow) {
-        if ([_delegate respondsToSelector:@selector(widgetViewNavigatePreviousType:)]) {
-            [_delegate widgetViewNavigatePreviousType:self];
-        }
+    // Check period pill - show dropdown menu
+    if (_isOverPeriodPill) {
+        [self showPeriodMenu];
         return;
     }
-    if (_isOverTypeRightArrow) {
-        if ([_delegate respondsToSelector:@selector(widgetViewNavigateNextType:)]) {
-            [_delegate widgetViewNavigateNextType:self];
-        }
+
+    // Check type pill - show dropdown menu
+    if (_isOverTypePill) {
+        [self showTypeMenu];
         return;
     }
 
@@ -375,6 +369,86 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
             }
             return;
         }
+    }
+}
+
+- (void)showPeriodMenu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Period"];
+
+    NSMenuItem *weeklyItem = [[NSMenuItem alloc] initWithTitle:@"Weekly" action:@selector(selectPeriodWeekly:) keyEquivalent:@""];
+    weeklyItem.target = self;
+    weeklyItem.state = (_currentPeriod == ScrobbleChartPeriodWeekly) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:weeklyItem];
+
+    NSMenuItem *monthlyItem = [[NSMenuItem alloc] initWithTitle:@"Monthly" action:@selector(selectPeriodMonthly:) keyEquivalent:@""];
+    monthlyItem.target = self;
+    monthlyItem.state = (_currentPeriod == ScrobbleChartPeriodMonthly) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:monthlyItem];
+
+    NSMenuItem *overallItem = [[NSMenuItem alloc] initWithTitle:@"All Time" action:@selector(selectPeriodOverall:) keyEquivalent:@""];
+    overallItem.target = self;
+    overallItem.state = (_currentPeriod == ScrobbleChartPeriodOverall) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:overallItem];
+
+    NSPoint menuPoint = NSMakePoint(_periodPillRect.origin.x, _periodPillRect.origin.y + _periodPillRect.size.height);
+    [menu popUpMenuPositioningItem:nil atLocation:menuPoint inView:self];
+}
+
+- (void)showTypeMenu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Type"];
+
+    NSMenuItem *albumsItem = [[NSMenuItem alloc] initWithTitle:@"Albums" action:@selector(selectTypeAlbums:) keyEquivalent:@""];
+    albumsItem.target = self;
+    albumsItem.state = (_currentType == ScrobbleChartTypeAlbums) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:albumsItem];
+
+    NSMenuItem *artistsItem = [[NSMenuItem alloc] initWithTitle:@"Artists" action:@selector(selectTypeArtists:) keyEquivalent:@""];
+    artistsItem.target = self;
+    artistsItem.state = (_currentType == ScrobbleChartTypeArtists) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:artistsItem];
+
+    NSMenuItem *tracksItem = [[NSMenuItem alloc] initWithTitle:@"Tracks" action:@selector(selectTypeTracks:) keyEquivalent:@""];
+    tracksItem.target = self;
+    tracksItem.state = (_currentType == ScrobbleChartTypeTracks) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:tracksItem];
+
+    NSPoint menuPoint = NSMakePoint(_typePillRect.origin.x, _typePillRect.origin.y + _typePillRect.size.height);
+    [menu popUpMenuPositioningItem:nil atLocation:menuPoint inView:self];
+}
+
+- (void)selectPeriodWeekly:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectPeriod:)]) {
+        [_delegate widgetView:self didSelectPeriod:ScrobbleChartPeriodWeekly];
+    }
+}
+
+- (void)selectPeriodMonthly:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectPeriod:)]) {
+        [_delegate widgetView:self didSelectPeriod:ScrobbleChartPeriodMonthly];
+    }
+}
+
+- (void)selectPeriodOverall:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectPeriod:)]) {
+        [_delegate widgetView:self didSelectPeriod:ScrobbleChartPeriodOverall];
+    }
+}
+
+- (void)selectTypeAlbums:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectType:)]) {
+        [_delegate widgetView:self didSelectType:ScrobbleChartTypeAlbums];
+    }
+}
+
+- (void)selectTypeArtists:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectType:)]) {
+        [_delegate widgetView:self didSelectType:ScrobbleChartTypeArtists];
+    }
+}
+
+- (void)selectTypeTracks:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectType:)]) {
+        [_delegate widgetView:self didSelectType:ScrobbleChartTypeTracks];
     }
 }
 
@@ -392,16 +466,23 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     NSTimeInterval duration = kArrowFadeDuration;
     NSTimeInterval startTime = [NSDate timeIntervalSinceReferenceDate];
 
+    __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         NSTimer *timer = [NSTimer scheduledTimerWithTimeInterval:1.0/60.0 repeats:YES block:^(NSTimer *t) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) {
+                [t invalidate];
+                return;
+            }
+
             NSTimeInterval elapsed = [NSDate timeIntervalSinceReferenceDate] - startTime;
             CGFloat progress = MIN(1.0, elapsed / duration);
 
             // Ease out
             progress = 1.0 - pow(1.0 - progress, 2);
 
-            self->_arrowOpacity = startOpacity + (targetOpacity - startOpacity) * progress;
-            [self setNeedsDisplay:YES];
+            strongSelf->_arrowOpacity = startOpacity + (targetOpacity - startOpacity) * progress;
+            [strongSelf setNeedsDisplay:YES];
 
             if (progress >= 1.0) {
                 [t invalidate];
@@ -428,9 +509,12 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         firstDraw = NO;
     }
 
-    // Background
-    [[NSColor windowBackgroundColor] setFill];
-    NSRectFill(dirtyRect);
+    // Background (skip if using glass effect - it handles its own background)
+    if (!_useGlassBackground) {
+        NSColor *bgColor = _backgroundColor ?: [NSColor windowBackgroundColor];
+        [bgColor setFill];
+        NSRectFill(dirtyRect);
+    }
 
     switch (_state) {
         case ScrobbleWidgetStateLoading:
@@ -497,26 +581,41 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 
 - (void)drawReadyState {
     CGFloat contentWidth = self.bounds.size.width - (kPadding * 2);
+    CGFloat viewHeight = self.bounds.size.height;
     CGFloat y = kPadding;
 
-    // Calculate album size based on available width
-    CGFloat oldAlbumSize = _calculatedAlbumSize;
-    _calculatedAlbumSize = [self calculateAlbumSizeForWidth:contentWidth];
+    // Profile section (compact header) - shared across all display styles
+    CGFloat headerEndY = [self drawProfileSectionAtY:y width:contentWidth];
 
-    // Log when album size changes
-    if (fabs(oldAlbumSize - _calculatedAlbumSize) > 0.1) {
-        NSLog(@"[ScrobbleWidget] drawReadyState - bounds: %@, contentWidth: %.1f, albumSize: %.1f -> %.1f, maxAlbums: %ld",
-              NSStringFromRect(self.bounds), contentWidth, oldAlbumSize, _calculatedAlbumSize, (long)_maxAlbums);
+    // Footer is sticky at bottom
+    CGFloat footerY = viewHeight - kFooterHeight - kPadding;
+
+    // Available space for content (between header and footer)
+    CGFloat contentStartY = headerEndY;
+    CGFloat contentEndY = footerY - kPadding;
+    CGFloat availableHeight = contentEndY - contentStartY;
+
+    if (_displayStyle == ScrobbleDisplayStylePlayback2025) {
+        // Bubble layout - centered vertically in available space
+        CGFloat bubbleSize = MIN(contentWidth, availableHeight);
+        CGFloat bubbleStartY = contentStartY + (availableHeight - bubbleSize) / 2;
+        [self drawBubbleLayoutAtY:bubbleStartY width:contentWidth availableHeight:bubbleSize];
+    } else {
+        // Calculate album size based on available width
+        CGFloat oldAlbumSize = _calculatedAlbumSize;
+        _calculatedAlbumSize = [self calculateAlbumSizeForWidth:contentWidth];
+
+        if (fabs(oldAlbumSize - _calculatedAlbumSize) > 0.1) {
+            NSLog(@"[ScrobbleWidget] drawReadyState - bounds: %@, contentWidth: %.1f, albumSize: %.1f -> %.1f, maxAlbums: %ld",
+                  NSStringFromRect(self.bounds), contentWidth, oldAlbumSize, _calculatedAlbumSize, (long)_maxAlbums);
+        }
+
+        // Album grid (top-aligned)
+        [self drawAlbumGridAtY:contentStartY width:contentWidth];
     }
 
-    // Profile section (compact header)
-    y = [self drawProfileSectionAtY:y width:contentWidth];
-
-    // Album grid
-    y = [self drawAlbumGridAtY:y width:contentWidth];
-
-    // Status footer
-    [self drawStatusFooterAtY:y width:contentWidth];
+    // Status footer (sticky at bottom)
+    [self drawStatusFooterAtY:footerY width:contentWidth];
 }
 
 - (CGFloat)drawProfileSectionAtY:(CGFloat)y width:(CGFloat)width {
@@ -548,19 +647,28 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     }
     x += profileSize + spacing;
 
-    // Link button on the far right
-    CGFloat linkButtonSize = 22.0;
-    _profileLinkRect = NSMakeRect(kPadding + width - linkButtonSize, y + (rowHeight - linkButtonSize) / 2,
-                                   linkButtonSize, linkButtonSize);
+    // Reload and Link buttons on the far right
+    CGFloat buttonSize = 22.0;
+    CGFloat buttonGap = 2.0;
+
+    // Link button (rightmost)
+    _profileLinkRect = NSMakeRect(kPadding + width - buttonSize, y + (rowHeight - buttonSize) / 2,
+                                   buttonSize, buttonSize);
     NSColor *linkColor = _isOverProfileLink ? [NSColor controlAccentColor] : [NSColor secondaryLabelColor];
     [self drawExternalLinkIconInRect:_profileLinkRect color:linkColor];
 
-    // Calculate navigation area (between profile and link button)
+    // Reload button (left of link button)
+    _reloadButtonRect = NSMakeRect(_profileLinkRect.origin.x - buttonSize - buttonGap, y + (rowHeight - buttonSize) / 2,
+                                    buttonSize, buttonSize);
+    NSColor *reloadColor = _isOverReloadButton ? [NSColor controlAccentColor] : [NSColor secondaryLabelColor];
+    [self drawReloadIconInRect:_reloadButtonRect color:reloadColor];
+
+    // Calculate navigation area (between profile and buttons)
     CGFloat navAreaStart = x;
-    CGFloat navAreaWidth = width - profileSize - spacing - linkButtonSize - spacing;
+    CGFloat navAreaWidth = width - profileSize - spacing - (buttonSize * 2 + buttonGap) - spacing;
     CGFloat navAreaCenterX = navAreaStart + navAreaWidth / 2;
 
-    // Measure text sizes for combined pill
+    // Measure text sizes for dropdown pills
     NSDictionary *titleAttrs = @{
         NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [NSColor labelColor]
@@ -570,208 +678,106 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     NSSize periodSize = [periodText sizeWithAttributes:titleAttrs];
     NSSize typeSize = [typeText sizeWithAttributes:titleAttrs];
 
-    CGFloat arrowWidth = 6.0, arrowGap = 6.0, pillPadding = 8.0;
-    CGFloat dividerGap = 6.0;  // Space between the two controls inside the pill (reduced)
+    CGFloat chevronWidth = 8.0, pillPadH = 8.0;
+    CGFloat pillGap = 4.0;
     CGFloat pillHeight = 20.0;
-
-    // Calculate total width for combined pill: [< Period >  < Type >]
-    CGFloat periodContentWidth = arrowWidth + arrowGap + periodSize.width + arrowGap + arrowWidth;
-    CGFloat typeContentWidth = arrowWidth + arrowGap + typeSize.width + arrowGap + arrowWidth;
-    CGFloat totalContentWidth = periodContentWidth + dividerGap + typeContentWidth;
-    CGFloat combinedPillWidth = totalContentWidth + pillPadding * 2;
-
-    // Center the combined pill
-    CGFloat pillStartX = navAreaCenterX - combinedPillWidth / 2;
     CGFloat centerY = y + rowHeight / 2;
 
-    // Draw single unified pill background
-    NSRect pillRect = NSMakeRect(pillStartX, centerY - pillHeight / 2, combinedPillWidth, pillHeight);
-    [[NSColor colorWithWhite:0.5 alpha:0.12] setFill];
-    NSBezierPath *pillPath = [NSBezierPath bezierPathWithRoundedRect:pillRect
-                                                             xRadius:pillHeight / 2
-                                                             yRadius:pillHeight / 2];
-    [pillPath fill];
+    // Period pill: [Weekly v]
+    CGFloat periodPillWidth = pillPadH + periodSize.width + 4 + chevronWidth + pillPadH;
+    CGFloat typePillWidth = pillPadH + typeSize.width + 4 + chevronWidth + pillPadH;
+    CGFloat totalWidth = periodPillWidth + pillGap + typePillWidth;
+    CGFloat startX = navAreaCenterX - totalWidth / 2;
 
-    // Period control rect (for hit testing) - left half of pill
-    CGFloat periodRectWidth = pillPadding + periodContentWidth + dividerGap / 2;
-    _periodRowRect = NSMakeRect(pillStartX, y, periodRectWidth, rowHeight);
+    // Draw period pill
+    NSRect periodPill = NSMakeRect(startX, centerY - pillHeight / 2, periodPillWidth, pillHeight);
+    _periodPillRect = periodPill;
+    NSColor *periodBg = _isOverPeriodPill ? [NSColor colorWithWhite:0.5 alpha:0.2] : [NSColor colorWithWhite:0.5 alpha:0.12];
+    [periodBg setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:periodPill xRadius:pillHeight/2 yRadius:pillHeight/2] fill];
 
-    // Type control rect (for hit testing) - right half of pill
-    CGFloat typeRectStart = pillStartX + periodRectWidth;
-    CGFloat typeRectWidth = dividerGap / 2 + typeContentWidth + pillPadding;
-    _typeRowRect = NSMakeRect(typeRectStart, y, typeRectWidth, rowHeight);
+    // Period text + chevron
+    CGFloat periodTextX = startX + pillPadH;
+    CGFloat textY = centerY - periodSize.height / 2;
+    [periodText drawAtPoint:NSMakePoint(periodTextX, textY) withAttributes:titleAttrs];
+    [self drawDropdownChevronAtX:periodTextX + periodSize.width + 4 centerY:centerY
+                        hovered:_isOverPeriodPill];
 
-    // Draw period content: < Weekly >
-    CGFloat periodCenterX = pillStartX + pillPadding + periodContentWidth / 2;
-    [self drawNavigationContentAtCenterX:periodCenterX
-                                  centerY:centerY
-                                    title:periodText
-                                titleSize:periodSize
-                               arrowWidth:arrowWidth
-                                 arrowGap:arrowGap
-                          isOverLeftArrow:_isOverPeriodLeftArrow
-                         isOverRightArrow:_isOverPeriodRightArrow];
+    // Draw type pill
+    CGFloat typeStartX = startX + periodPillWidth + pillGap;
+    NSRect typePill = NSMakeRect(typeStartX, centerY - pillHeight / 2, typePillWidth, pillHeight);
+    _typePillRect = typePill;
+    NSColor *typeBg = _isOverTypePill ? [NSColor colorWithWhite:0.5 alpha:0.2] : [NSColor colorWithWhite:0.5 alpha:0.12];
+    [typeBg setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:typePill xRadius:pillHeight/2 yRadius:pillHeight/2] fill];
 
-    // Draw type content: < Albums >
-    CGFloat typeCenterX = pillStartX + pillPadding + periodContentWidth + dividerGap + typeContentWidth / 2;
-    [self drawNavigationContentAtCenterX:typeCenterX
-                                  centerY:centerY
-                                    title:typeText
-                                titleSize:typeSize
-                               arrowWidth:arrowWidth
-                                 arrowGap:arrowGap
-                          isOverLeftArrow:_isOverTypeLeftArrow
-                         isOverRightArrow:_isOverTypeRightArrow];
+    // Type text + chevron
+    CGFloat typeTextX = typeStartX + pillPadH;
+    [typeText drawAtPoint:NSMakePoint(typeTextX, textY) withAttributes:titleAttrs];
+    [self drawDropdownChevronAtX:typeTextX + typeSize.width + 4 centerY:centerY
+                        hovered:_isOverTypePill];
 
     return y + rowHeight + spacing;
 }
 
-- (void)drawCompactNavigationInRect:(NSRect)rect title:(NSString *)title
-                     isOverLeftArrow:(BOOL)isOverLeft isOverRightArrow:(BOOL)isOverRight {
-    // Title attributes
-    NSDictionary *titleAttrs = @{
-        NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: [NSColor labelColor]
-    };
+- (void)drawDropdownChevronAtX:(CGFloat)x centerY:(CGFloat)centerY hovered:(BOOL)hovered {
+    CGFloat size = 4.0;
+    NSColor *color = hovered ? [NSColor controlAccentColor] : [NSColor secondaryLabelColor];
 
-    NSSize titleSize = [title sizeWithAttributes:titleAttrs];
-    CGFloat centerX = rect.origin.x + rect.size.width / 2;
-    CGFloat centerY = rect.origin.y + rect.size.height / 2;
+    NSBezierPath *chevron = [NSBezierPath bezierPath];
+    chevron.lineWidth = 1.2;
+    chevron.lineCapStyle = NSLineCapStyleRound;
+    chevron.lineJoinStyle = NSLineJoinStyleRound;
 
-    // Calculate tight pill size around content
-    CGFloat arrowWidth = 6.0;
-    CGFloat arrowGap = 6.0;
-    CGFloat pillPadding = 8.0;
-    CGFloat contentWidth = arrowWidth + arrowGap + titleSize.width + arrowGap + arrowWidth;
-    CGFloat pillWidth = contentWidth + pillPadding * 2;
-    CGFloat pillHeight = 20.0;
-
-    NSRect pillRect = NSMakeRect(centerX - pillWidth / 2, centerY - pillHeight / 2, pillWidth, pillHeight);
-
-    // Draw subtle pill background
-    [[NSColor colorWithWhite:0.5 alpha:0.12] setFill];
-    NSBezierPath *pillPath = [NSBezierPath bezierPathWithRoundedRect:pillRect
-                                                             xRadius:pillHeight / 2
-                                                             yRadius:pillHeight / 2];
-    [pillPath fill];
-
-    // Draw title centered
-    CGFloat titleX = centerX - titleSize.width / 2;
-    CGFloat titleY = centerY - titleSize.height / 2;
-    [title drawAtPoint:NSMakePoint(titleX, titleY) withAttributes:titleAttrs];
-
-    // Small arrows close to text
-    CGFloat arrowY = centerY;
-
-    // Left arrow (just before text)
-    CGFloat leftArrowX = titleX - arrowGap - arrowWidth;
-    NSColor *leftColor = isOverLeft ? [NSColor controlAccentColor] : [NSColor tertiaryLabelColor];
-    [self drawSmallArrowAtX:leftArrowX y:arrowY direction:-1 color:leftColor];
-
-    // Right arrow (just after text)
-    CGFloat rightArrowX = titleX + titleSize.width + arrowGap;
-    NSColor *rightColor = isOverRight ? [NSColor controlAccentColor] : [NSColor tertiaryLabelColor];
-    [self drawSmallArrowAtX:rightArrowX y:arrowY direction:1 color:rightColor];
-}
-
-- (void)drawNavigationContentAtCenterX:(CGFloat)centerX centerY:(CGFloat)centerY
-                                  title:(NSString *)title titleSize:(NSSize)titleSize
-                             arrowWidth:(CGFloat)arrowWidth arrowGap:(CGFloat)arrowGap
-                        isOverLeftArrow:(BOOL)isOverLeft isOverRightArrow:(BOOL)isOverRight {
-    // Draw title centered at given position
-    NSDictionary *titleAttrs = @{
-        NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: [NSColor labelColor]
-    };
-
-    CGFloat titleX = centerX - titleSize.width / 2;
-    CGFloat titleY = centerY - titleSize.height / 2;
-    [title drawAtPoint:NSMakePoint(titleX, titleY) withAttributes:titleAttrs];
-
-    // Left arrow (just before text)
-    CGFloat leftArrowX = titleX - arrowGap - arrowWidth;
-    NSColor *leftColor = isOverLeft ? [NSColor controlAccentColor] : [NSColor tertiaryLabelColor];
-    [self drawSmallArrowAtX:leftArrowX y:centerY direction:-1 color:leftColor];
-
-    // Right arrow (just after text)
-    CGFloat rightArrowX = titleX + titleSize.width + arrowGap;
-    NSColor *rightColor = isOverRight ? [NSColor controlAccentColor] : [NSColor tertiaryLabelColor];
-    [self drawSmallArrowAtX:rightArrowX y:centerY direction:1 color:rightColor];
-}
-
-- (void)drawSmallArrowAtX:(CGFloat)x y:(CGFloat)y direction:(int)direction color:(NSColor *)color {
-    CGFloat size = 5.0;
-
-    NSBezierPath *arrow = [NSBezierPath bezierPath];
-    arrow.lineWidth = 1.2;
-    arrow.lineCapStyle = NSLineCapStyleRound;
-    arrow.lineJoinStyle = NSLineJoinStyleRound;
-
-    if (direction < 0) {
-        // Left arrow <
-        [arrow moveToPoint:NSMakePoint(x + size, y - size/2)];
-        [arrow lineToPoint:NSMakePoint(x, y)];
-        [arrow lineToPoint:NSMakePoint(x + size, y + size/2)];
-    } else {
-        // Right arrow >
-        [arrow moveToPoint:NSMakePoint(x, y - size/2)];
-        [arrow lineToPoint:NSMakePoint(x + size, y)];
-        [arrow lineToPoint:NSMakePoint(x, y + size/2)];
-    }
+    // Down chevron (v shape)
+    [chevron moveToPoint:NSMakePoint(x, centerY - size/2)];
+    [chevron lineToPoint:NSMakePoint(x + size, centerY + size/2)];
+    [chevron lineToPoint:NSMakePoint(x + size*2, centerY - size/2)];
 
     [color setStroke];
-    [arrow stroke];
+    [chevron stroke];
 }
 
-- (void)drawNavigationRowInRect:(NSRect)rect title:(NSString *)title
-                 isOverLeftArrow:(BOOL)isOverLeft isOverRightArrow:(BOOL)isOverRight
-                      arrowWidth:(CGFloat)arrowWidth {
-    // Draw centered title with arrows on each side
-    NSDictionary *titleAttrs = @{
-        NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: [NSColor secondaryLabelColor]
-    };
+- (void)drawReloadIconInRect:(NSRect)rect color:(NSColor *)color {
+    // Draw a circular arrow (refresh icon)
+    CGFloat inset = 5.0;
+    NSRect iconRect = NSInsetRect(rect, inset, inset);
+    CGFloat cx = NSMidX(iconRect);
+    CGFloat cy = NSMidY(iconRect);
+    CGFloat radius = iconRect.size.width / 2 - 1;
 
-    NSSize titleSize = [title sizeWithAttributes:titleAttrs];
-    CGFloat centerX = rect.origin.x + rect.size.width / 2;
-    CGFloat titleX = centerX - titleSize.width / 2;
-    CGFloat titleY = rect.origin.y + (rect.size.height - titleSize.height) / 2;
+    NSBezierPath *path = [NSBezierPath bezierPath];
+    path.lineWidth = 1.5;
+    path.lineCapStyle = NSLineCapStyleRound;
 
-    [title drawAtPoint:NSMakePoint(titleX, titleY) withAttributes:titleAttrs];
+    // Draw arc (about 270 degrees, leaving a gap for the arrow)
+    CGFloat startAngle = 45.0;   // degrees
+    CGFloat endAngle = 315.0;    // degrees
+    [path appendBezierPathWithArcWithCenter:NSMakePoint(cx, cy)
+                                     radius:radius
+                                 startAngle:startAngle
+                                   endAngle:endAngle
+                                  clockwise:NO];
 
-    // Left arrow
-    CGFloat arrowY = rect.origin.y + rect.size.height / 2;
-    CGFloat leftArrowX = titleX - arrowWidth - 4;
-    NSColor *leftColor = isOverLeft ? [NSColor controlAccentColor] : [NSColor tertiaryLabelColor];
-    [self drawInlineArrowAtX:leftArrowX y:arrowY direction:-1 color:leftColor];
+    [color setStroke];
+    [path stroke];
 
-    // Right arrow
-    CGFloat rightArrowX = titleX + titleSize.width + 4;
-    NSColor *rightColor = isOverRight ? [NSColor controlAccentColor] : [NSColor tertiaryLabelColor];
-    [self drawInlineArrowAtX:rightArrowX y:arrowY direction:1 color:rightColor];
-}
+    // Draw arrowhead at the end of the arc
+    CGFloat arrowAngle = endAngle * M_PI / 180.0;
+    CGFloat arrowX = cx + radius * cos(arrowAngle);
+    CGFloat arrowY = cy + radius * sin(arrowAngle);
 
-- (void)drawInlineArrowAtX:(CGFloat)x y:(CGFloat)y direction:(int)direction color:(NSColor *)color {
-    CGFloat size = 8.0;
-
+    CGFloat arrowSize = 3.0;
     NSBezierPath *arrow = [NSBezierPath bezierPath];
     arrow.lineWidth = 1.5;
     arrow.lineCapStyle = NSLineCapStyleRound;
     arrow.lineJoinStyle = NSLineJoinStyleRound;
 
-    if (direction < 0) {
-        // Left arrow <
-        [arrow moveToPoint:NSMakePoint(x + size, y - size/2)];
-        [arrow lineToPoint:NSMakePoint(x, y)];
-        [arrow lineToPoint:NSMakePoint(x + size, y + size/2)];
-    } else {
-        // Right arrow >
-        [arrow moveToPoint:NSMakePoint(x, y - size/2)];
-        [arrow lineToPoint:NSMakePoint(x + size, y)];
-        [arrow lineToPoint:NSMakePoint(x, y + size/2)];
-    }
+    // Arrow pointing in direction of arc travel (clockwise at this point)
+    [arrow moveToPoint:NSMakePoint(arrowX - arrowSize, arrowY + arrowSize)];
+    [arrow lineToPoint:NSMakePoint(arrowX, arrowY)];
+    [arrow lineToPoint:NSMakePoint(arrowX + arrowSize, arrowY + arrowSize)];
 
-    [color setStroke];
     [arrow stroke];
 }
 
@@ -809,6 +815,105 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     [path stroke];
 }
 
+- (CGFloat)drawBubbleLayoutAtY:(CGFloat)y width:(CGFloat)width availableHeight:(CGFloat)availableHeight {
+    // Clear stored rects
+    [_albumRects removeAllObjects];
+
+    if (_topAlbums.count == 0) {
+        return y;
+    }
+
+    // Normalized circle positions (centerX, centerY, radius) in 0..1 space
+    struct CircleLayout { float centerX; float centerY; float radius; };
+    static const CircleLayout circles[10] = {
+        {0.7576f, 0.2424f, 0.2147f},  // circle 1
+        {0.5791f, 0.7355f, 0.1801f},  // circle 2
+        {0.2750f, 0.6504f, 0.1316f},  // circle 3
+        {0.1524f, 0.4207f, 0.1247f},  // circle 4
+        {0.2803f, 0.2312f, 0.0997f},  // circle 5
+        {0.4602f, 0.1589f, 0.0900f},  // circle 6
+        {0.4695f, 0.3374f, 0.0845f},  // circle 7
+        {0.5686f, 0.4725f, 0.0790f},  // circle 8
+        {0.4117f, 0.4902f, 0.0748f},  // circle 9
+        {0.3324f, 0.3817f, 0.0554f},  // circle 10
+    };
+
+    // Use a square area for the bubble layout (passed in, already computed for centering)
+    CGFloat areaSize = MIN(width, availableHeight);
+    if (areaSize < 100) areaSize = width;  // Fallback
+
+    CGFloat offsetX = kPadding + (width - areaSize) / 2;
+    CGFloat offsetY = y;
+
+    NSInteger count = MIN((NSInteger)_topAlbums.count, 10);
+
+    for (NSInteger i = 0; i < count; i++) {
+        TopAlbum *album = _topAlbums[i];
+        const CircleLayout &layout = circles[i];
+
+        CGFloat cx = offsetX + layout.centerX * areaSize;
+        CGFloat cy = offsetY + layout.centerY * areaSize;
+        CGFloat r = layout.radius * areaSize;
+        CGFloat diameter = r * 2;
+
+        NSRect circleRect = NSMakeRect(cx - r, cy - r, diameter, diameter);
+
+        // Store rect for hit testing
+        [_albumRects addObject:[NSValue valueWithRect:circleRect]];
+
+        // Skip actual drawing during animation (layers handle visuals)
+        if (_isAnimatingTransition) continue;
+
+        // Clip to circle
+        NSBezierPath *clipPath = [NSBezierPath bezierPathWithOvalInRect:circleRect];
+
+        // Try to get loaded image
+        NSImage *albumImage = nil;
+        if (album.imageURL && _albumImages) {
+            albumImage = _albumImages[album.imageURL];
+        }
+
+        if (albumImage) {
+            [NSGraphicsContext saveGraphicsState];
+            [clipPath addClip];
+            [self drawImage:albumImage inRect:circleRect];
+            [NSGraphicsContext restoreGraphicsState];
+        } else {
+            // Placeholder circle
+            [[NSColor tertiaryLabelColor] setFill];
+            [clipPath fill];
+
+            // Draw name centered in placeholder
+            if (album.name.length > 0) {
+                NSMutableParagraphStyle *paraStyle = [[NSMutableParagraphStyle alloc] init];
+                paraStyle.alignment = NSTextAlignmentCenter;
+                paraStyle.lineBreakMode = NSLineBreakByWordWrapping;
+
+                CGFloat fontSize = MAX(8.0, r * 0.25);
+                NSDictionary *nameAttrs = @{
+                    NSFontAttributeName: [NSFont systemFontOfSize:fontSize],
+                    NSForegroundColorAttributeName: [NSColor secondaryLabelColor],
+                    NSParagraphStyleAttributeName: paraStyle
+                };
+
+                CGFloat textInset = r * 0.3;
+                NSRect textRect = NSMakeRect(cx - r + textInset, cy - r * 0.4,
+                                             diameter - textInset * 2, r * 0.8);
+                [album.name drawInRect:textRect withAttributes:nameAttrs];
+            }
+        }
+
+        // Draw subtle circle border
+        [[NSColor colorWithWhite:0.5 alpha:0.2] setStroke];
+        [clipPath setLineWidth:1.0];
+        [clipPath stroke];
+
+        // Rank badge removed from bubbles - shown in tooltip instead
+    }
+
+    return offsetY + areaSize + kAlbumSpacing;
+}
+
 - (CGFloat)drawAlbumGridAtY:(CGFloat)y width:(CGFloat)width {
     // Clear stored rects
     [_albumRects removeAllObjects];
@@ -837,52 +942,55 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         // Store rect for hit testing
         [_albumRects addObject:[NSValue valueWithRect:albumRect]];
 
-        // Try to get loaded image
-        NSImage *albumImage = nil;
-        if (album.imageURL && _albumImages) {
-            albumImage = _albumImages[album.imageURL];
-        }
-
-        if (albumImage) {
-            // Draw the album artwork scaled to fill
-            [self drawImage:albumImage inRect:albumRect];
-        } else {
-            // Draw placeholder
-            [[NSColor tertiaryLabelColor] setFill];
-            NSRectFill(albumRect);
-
-            // Draw album name centered in placeholder (below rank badge area)
-            if (album.name.length > 0) {
-                NSMutableParagraphStyle *paraStyle = [[NSMutableParagraphStyle alloc] init];
-                paraStyle.alignment = NSTextAlignmentCenter;
-                paraStyle.lineBreakMode = NSLineBreakByWordWrapping;
-
-                NSDictionary *nameAttrs = @{
-                    NSFontAttributeName: [NSFont systemFontOfSize:10],
-                    NSForegroundColorAttributeName: [NSColor secondaryLabelColor],
-                    NSParagraphStyleAttributeName: paraStyle
-                };
-
-                // Inset to avoid rank badge (top-left) and leave margins
-                NSRect textRect = NSMakeRect(x + 4, y + 24, albumSize - 8, albumSize - 28);
-                [album.name drawInRect:textRect withAttributes:nameAttrs];
+        // Skip actual drawing during animation (layers handle visuals)
+        if (!_isAnimatingTransition) {
+            // Try to get loaded image
+            NSImage *albumImage = nil;
+            if (album.imageURL && _albumImages) {
+                albumImage = _albumImages[album.imageURL];
             }
+
+            if (albumImage) {
+                // Draw the album artwork scaled to fill
+                [self drawImage:albumImage inRect:albumRect];
+            } else {
+                // Draw placeholder
+                [[NSColor tertiaryLabelColor] setFill];
+                NSRectFill(albumRect);
+
+                // Draw album name centered in placeholder (below rank badge area)
+                if (album.name.length > 0) {
+                    NSMutableParagraphStyle *paraStyle = [[NSMutableParagraphStyle alloc] init];
+                    paraStyle.alignment = NSTextAlignmentCenter;
+                    paraStyle.lineBreakMode = NSLineBreakByWordWrapping;
+
+                    NSDictionary *nameAttrs = @{
+                        NSFontAttributeName: [NSFont systemFontOfSize:10],
+                        NSForegroundColorAttributeName: [NSColor secondaryLabelColor],
+                        NSParagraphStyleAttributeName: paraStyle
+                    };
+
+                    // Inset to avoid rank badge (top-left) and leave margins
+                    NSRect textRect = NSMakeRect(x + 4, y + 24, albumSize - 8, albumSize - 28);
+                    [album.name drawInRect:textRect withAttributes:nameAttrs];
+                }
+            }
+
+            // Draw rank badge (semi-transparent background)
+            NSString *rank = [NSString stringWithFormat:@"%ld", (long)album.rank];
+            NSDictionary *rankAttrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:9 weight:NSFontWeightBold],
+                NSForegroundColorAttributeName: [NSColor whiteColor]
+            };
+            NSSize rankSize = [rank sizeWithAttributes:rankAttrs];
+            NSRect badgeRect = NSMakeRect(x + 2, y + 2, rankSize.width + 6, rankSize.height + 2);
+
+            [[NSColor colorWithWhite:0 alpha:0.6] setFill];
+            NSBezierPath *badgePath = [NSBezierPath bezierPathWithRoundedRect:badgeRect xRadius:3 yRadius:3];
+            [badgePath fill];
+
+            [rank drawAtPoint:NSMakePoint(x + 5, y + 3) withAttributes:rankAttrs];
         }
-
-        // Draw rank badge (semi-transparent background)
-        NSString *rank = [NSString stringWithFormat:@"%ld", (long)album.rank];
-        NSDictionary *rankAttrs = @{
-            NSFontAttributeName: [NSFont systemFontOfSize:9 weight:NSFontWeightBold],
-            NSForegroundColorAttributeName: [NSColor whiteColor]
-        };
-        NSSize rankSize = [rank sizeWithAttributes:rankAttrs];
-        NSRect badgeRect = NSMakeRect(x + 2, y + 2, rankSize.width + 6, rankSize.height + 2);
-
-        [[NSColor colorWithWhite:0 alpha:0.6] setFill];
-        NSBezierPath *badgePath = [NSBezierPath bezierPathWithRoundedRect:badgeRect xRadius:3 yRadius:3];
-        [badgePath fill];
-
-        [rank drawAtPoint:NSMakePoint(x + 5, y + 3) withAttributes:rankAttrs];
 
         col++;
         if (col >= albumsPerRow) {
@@ -936,22 +1044,58 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         NSFontAttributeName: [NSFont systemFontOfSize:10],
         NSForegroundColorAttributeName: [NSColor tertiaryLabelColor]
     };
+    NSDictionary *errorAttrs = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:10],
+        NSForegroundColorAttributeName: [NSColor systemOrangeColor]
+    };
+
+    // If there's an error message in Ready state, show it instead of normal status
+    if (_errorMessage.length > 0 && _state == ScrobbleWidgetStateReady) {
+        // Truncate long error messages
+        NSString *displayError = _errorMessage;
+        if (displayError.length > 60) {
+            displayError = [[displayError substringToIndex:57] stringByAppendingString:@"..."];
+        }
+
+        // Draw error with retry hint
+        NSString *errorText = [NSString stringWithFormat:@"%@ (click refresh)", displayError];
+        NSRect errorRect = NSMakeRect(kPadding, y, width, 14);
+        [errorText drawInRect:errorRect withAttributes:errorAttrs];
+        return;
+    }
+
+    // Build footer text per spec:
+    // "15 day streak | 7 scrobbles today | 2 queued         Updated 14:32"
+    // "15 day streak (continue today) | 0 scrobbles today   Updated 14:32"
+    // "42+ day streak... | 5 scrobbles today                Updated 14:32"
+    // "7 scrobbles today                                    Updated 14:32"
+
+    NSMutableString *statusText = [NSMutableString string];
+
+    // Streak (shown first when >= 2 days)
+    if (_streakEnabled && _streakDays >= 2) {
+        if (_streakDiscoveryInProgress) {
+            [statusText appendFormat:@"%ld+ day streak...", (long)_streakDays];
+        } else if (_streakNeedsContinuation) {
+            [statusText appendFormat:@"%ld day streak (continue today)", (long)_streakDays];
+        } else {
+            [statusText appendFormat:@"%ld day streak", (long)_streakDays];
+        }
+        [statusText appendString:@" | "];
+    }
 
     // Scrobbled today
-    NSString *todayText;
     if (_scrobbledToday >= 200) {
-        todayText = @"200+ scrobbles today";
+        [statusText appendString:@"200+ scrobbles today"];
     } else {
-        todayText = [NSString stringWithFormat:@"%ld scrobbles today", (long)_scrobbledToday];
+        [statusText appendFormat:@"%ld scrobbles today", (long)_scrobbledToday];
     }
 
     // Queue status
-    NSString *queueText = @"";
     if (_queueCount > 0) {
-        queueText = [NSString stringWithFormat:@" | %ld queued", (long)_queueCount];
+        [statusText appendFormat:@" | %ld queued", (long)_queueCount];
     }
 
-    NSString *statusText = [todayText stringByAppendingString:queueText];
     NSRect statusRect = NSMakeRect(kPadding, y, width, 14);
     [statusText drawInRect:statusRect withAttributes:statusAttrs];
 
@@ -981,7 +1125,13 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     // Build tooltip text
     NSString *artistText = album.artist.length > 0 ? album.artist : @"Unknown Artist";
     NSString *albumText = album.name.length > 0 ? album.name : @"Unknown Album";
-    NSString *playsText = [NSString stringWithFormat:@"%ld plays", (long)album.playcount];
+    // Include rank in tooltip for bubble view
+    NSString *playsText;
+    if (_displayStyle == ScrobbleDisplayStylePlayback2025 && album.rank > 0) {
+        playsText = [NSString stringWithFormat:@"#%ld - %ld plays", (long)album.rank, (long)album.playcount];
+    } else {
+        playsText = [NSString stringWithFormat:@"%ld plays", (long)album.playcount];
+    }
 
     // Calculate tooltip size
     NSDictionary *titleAttrs = @{
@@ -1076,6 +1226,114 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 }
 
 #pragma mark - Public Methods
+
+- (void)setDisplayStyle:(ScrobbleDisplayStyle)style animated:(BOOL)animated {
+    if (_displayStyle == style) return;
+
+    if (!animated || !self.window || _topAlbums.count == 0) {
+        _displayStyle = style;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+
+    // Capture current item rects and corner radii
+    NSArray<NSValue *> *oldRects = [_albumRects copy];
+    BOOL wasGrid = (_displayStyle == ScrobbleDisplayStyleDefault);
+    CGFloat oldCornerRadius = wasGrid ? 4.0 : 1000.0;  // grid uses rounded rect, bubble uses circle
+
+    // Switch to new style and redraw to get new rects (but suppress actual drawing)
+    _displayStyle = style;
+    _isAnimatingTransition = YES;
+    [self display];  // Force synchronous draw to populate new _albumRects (items not drawn)
+
+    NSArray<NSValue *> *newRects = [_albumRects copy];
+    BOOL isGrid = (_displayStyle == ScrobbleDisplayStyleDefault);
+    CGFloat newCornerRadius = isGrid ? 4.0 : 1000.0;
+
+    NSInteger count = MIN((NSInteger)oldRects.count, (NSInteger)newRects.count);
+    if (count == 0) return;
+
+    NSTimeInterval duration = 0.4;
+    CAMediaTimingFunction *timing = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+
+    // Create animated layers for each item
+    NSMutableArray<CALayer *> *animLayers = [NSMutableArray array];
+
+    for (NSInteger i = 0; i < count; i++) {
+        NSRect fromRect = [oldRects[i] rectValue];
+        NSRect toRect = [newRects[i] rectValue];
+
+        // Get image for this item
+        NSImage *itemImage = nil;
+        if (i < (NSInteger)_topAlbums.count) {
+            TopAlbum *album = _topAlbums[i];
+            if (album.imageURL && _albumImages) {
+                itemImage = _albumImages[album.imageURL];
+            }
+        }
+
+        CALayer *itemLayer = [CALayer layer];
+        itemLayer.frame = fromRect;
+        if (itemImage) {
+            itemLayer.contents = itemImage;
+            itemLayer.contentsGravity = kCAGravityResizeAspectFill;
+        } else {
+            itemLayer.backgroundColor = [NSColor tertiaryLabelColor].CGColor;
+        }
+        itemLayer.masksToBounds = YES;
+        CGFloat fromRadius = MIN(oldCornerRadius, MIN(fromRect.size.width, fromRect.size.height) / 2);
+        itemLayer.cornerRadius = fromRadius;
+
+        [self.layer addSublayer:itemLayer];
+        [animLayers addObject:itemLayer];
+
+        // Animate bounds (size change)
+        CABasicAnimation *boundsAnim = [CABasicAnimation animationWithKeyPath:@"bounds"];
+        boundsAnim.fromValue = [NSValue valueWithRect:NSMakeRect(0, 0, fromRect.size.width, fromRect.size.height)];
+        boundsAnim.toValue = [NSValue valueWithRect:NSMakeRect(0, 0, toRect.size.width, toRect.size.height)];
+        boundsAnim.duration = duration;
+        boundsAnim.timingFunction = timing;
+
+        // Animate position (center point translation)
+        CABasicAnimation *posAnim = [CABasicAnimation animationWithKeyPath:@"position"];
+        CGPoint fromCenter = CGPointMake(NSMidX(fromRect), NSMidY(fromRect));
+        CGPoint toCenter = CGPointMake(NSMidX(toRect), NSMidY(toRect));
+        posAnim.fromValue = [NSValue valueWithPoint:NSPointFromCGPoint(fromCenter)];
+        posAnim.toValue = [NSValue valueWithPoint:NSPointFromCGPoint(toCenter)];
+        posAnim.duration = duration;
+        posAnim.timingFunction = timing;
+
+        // Animate corner radius (square-ish to circle or vice versa)
+        CGFloat toRadius = MIN(newCornerRadius, MIN(toRect.size.width, toRect.size.height) / 2);
+        CABasicAnimation *radiusAnim = [CABasicAnimation animationWithKeyPath:@"cornerRadius"];
+        radiusAnim.fromValue = @(fromRadius);
+        radiusAnim.toValue = @(toRadius);
+        radiusAnim.duration = duration;
+        radiusAnim.timingFunction = timing;
+
+        // Group animations
+        CAAnimationGroup *group = [CAAnimationGroup animation];
+        group.animations = @[boundsAnim, posAnim, radiusAnim];
+        group.duration = duration;
+        group.fillMode = kCAFillModeForwards;
+        group.removedOnCompletion = NO;
+
+        [itemLayer addAnimation:group forKey:@"transition"];
+
+        // Set final values
+        itemLayer.frame = toRect;
+        itemLayer.cornerRadius = toRadius;
+    }
+
+    // Remove overlay layers after animation completes
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(duration * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        for (CALayer *layer in animLayers) {
+            [layer removeFromSuperlayer];
+        }
+        self->_isAnimatingTransition = NO;
+        [self setNeedsDisplay:YES];
+    });
+}
 
 - (void)refreshDisplay {
     [self setNeedsDisplay:YES];

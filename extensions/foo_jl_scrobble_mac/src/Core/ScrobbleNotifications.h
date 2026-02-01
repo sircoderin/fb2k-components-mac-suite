@@ -28,3 +28,7 @@ extern NSNotificationName const ScrobbleStatsDidUpdateNotification;
 
 // Settings
 extern NSNotificationName const ScrobbleSettingsDidChangeNotification;
+
+// Streak (for optimistic UI updates)
+extern NSNotificationName const ScrobbleDidSubmitNotification;
+extern NSNotificationName const ScrobbleDidChangeAccountNotification;

@@ -26,6 +26,15 @@ static const char* const kSubmitDynamicSources = "submit_dynamic";
 static const char* const kWidgetStatsEnabled = "widget_stats_enabled";
 static const char* const kWidgetMaxAlbums = "widget_max_albums";
 static const char* const kWidgetRefreshInterval = "widget_refresh_interval";
+static const char* const kWidgetCacheDuration = "widget_cache_duration";
+static const char* const kWidgetDisplayStyle = "widget_display_style";  // "default" or "playback2025"
+static const char* const kWidgetBackgroundColor = "widget_bg_color";    // ARGB as int64_t
+static const char* const kWidgetGlassBackground = "widget_glass_bg";    // Use glass effect
+
+// Streak settings
+static const char* const kStreakDisplayEnabled = "streak_display_enabled";
+static const char* const kStreakCacheDuration = "streak_cache_duration";
+static const char* const kStreakRequestInterval = "streak_request_interval";
 
 // Titleformat mappings (advanced)
 static const char* const kArtistFormat = "artist_format";
@@ -192,6 +201,65 @@ inline int64_t getWidgetRefreshInterval() {
 
 inline void setWidgetRefreshInterval(int64_t seconds) {
     setConfigInt(kWidgetRefreshInterval, seconds);
+}
+
+inline int64_t getWidgetCacheDuration() {
+    return getConfigInt(kWidgetCacheDuration, 300);  // 5 minutes default
+}
+
+inline void setWidgetCacheDuration(int64_t seconds) {
+    setConfigInt(kWidgetCacheDuration, seconds);
+}
+
+inline std::string getWidgetDisplayStyle() {
+    return getConfigString(kWidgetDisplayStyle, "default");
+}
+
+inline void setWidgetDisplayStyle(const std::string& style) {
+    setConfigString(kWidgetDisplayStyle, style);
+}
+
+// Default: transparent (0x00000000) which means use system background
+inline int64_t getWidgetBackgroundColor() {
+    return getConfigInt(kWidgetBackgroundColor, 0x00000000);
+}
+
+inline void setWidgetBackgroundColor(int64_t argb) {
+    setConfigInt(kWidgetBackgroundColor, argb);
+}
+
+inline bool isWidgetGlassBackground() {
+    return getConfigBool(kWidgetGlassBackground, false);
+}
+
+inline void setWidgetGlassBackground(bool enabled) {
+    setConfigBool(kWidgetGlassBackground, enabled);
+}
+
+// Streak accessors
+
+inline bool isStreakDisplayEnabled() {
+    return getConfigBool(kStreakDisplayEnabled, true);  // Enabled by default
+}
+
+inline void setStreakDisplayEnabled(bool enabled) {
+    setConfigBool(kStreakDisplayEnabled, enabled);
+}
+
+inline int64_t getStreakCacheDuration() {
+    return getConfigInt(kStreakCacheDuration, 3600);  // 1 hour default
+}
+
+inline void setStreakCacheDuration(int64_t seconds) {
+    setConfigInt(kStreakCacheDuration, seconds);
+}
+
+inline int64_t getStreakRequestInterval() {
+    return getConfigInt(kStreakRequestInterval, 5);  // 5 seconds default
+}
+
+inline void setStreakRequestInterval(int64_t seconds) {
+    setConfigInt(kStreakRequestInterval, seconds);
 }
 
 } // namespace scrobble_config

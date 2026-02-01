@@ -213,6 +213,10 @@ static const double kBackoffMultiplier = 2.0;
                                                           @"ignored": @(ignored)
                                                       }];
 
+    // Post streak notification for optimistic UI update
+    [[NSNotificationCenter defaultCenter] postNotificationName:ScrobbleDidSubmitNotification
+                                                        object:self];
+
     // Process more if available
     self.state = ScrobbleServiceStateIdle;
     [self processQueue];

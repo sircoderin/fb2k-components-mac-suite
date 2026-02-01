@@ -67,8 +67,23 @@
         album.mbid = mbid;
     }
 
+    // Album name (for tracks - Last.fm returns album as object with "#text" key)
+    id albumValue = dict[@"album"];
+    if ([albumValue isKindOfClass:[NSDictionary class]]) {
+        NSString *albumText = albumValue[@"#text"];
+        if ([albumText isKindOfClass:[NSString class]] && albumText.length > 0) {
+            album.albumName = albumText;
+        }
+    } else if ([albumValue isKindOfClass:[NSString class]] && [albumValue length] > 0) {
+        album.albumName = albumValue;
+    }
+
     return album;
 }
+
+// Last.fm deprecated artist images in May 2019 and returns this placeholder
+// for all artist/track image requests. We detect and ignore it.
+static NSString *const kLastFmPlaceholderHash = @"2a96cbd8b46e442fc41c2b86b821562f";
 
 + (nullable NSURL *)bestImageURLFromArray:(NSArray *)images {
     if (![images isKindOfClass:[NSArray class]]) {
@@ -88,6 +103,10 @@
             if ([size isEqualToString:preferredSize]) {
                 NSString *urlString = image[@"#text"];
                 if ([urlString isKindOfClass:[NSString class]] && urlString.length > 0) {
+                    // Check for Last.fm placeholder image (deprecated artist images)
+                    if ([urlString containsString:kLastFmPlaceholderHash]) {
+                        return nil;  // Don't use placeholder
+                    }
                     return [NSURL URLWithString:urlString];
                 }
             }

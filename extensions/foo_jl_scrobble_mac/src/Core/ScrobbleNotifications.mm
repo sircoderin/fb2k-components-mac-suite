@@ -26,3 +26,7 @@ NSNotificationName const ScrobbleStatsDidUpdateNotification = @"ScrobbleStatsDid
 
 // Settings
 NSNotificationName const ScrobbleSettingsDidChangeNotification = @"ScrobbleSettingsDidChange";
+
+// Streak (for optimistic UI updates)
+NSNotificationName const ScrobbleDidSubmitNotification = @"ScrobbleDidSubmit";
+NSNotificationName const ScrobbleDidChangeAccountNotification = @"ScrobbleDidChangeAccount";

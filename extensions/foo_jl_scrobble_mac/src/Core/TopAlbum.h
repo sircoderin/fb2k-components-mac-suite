@@ -20,6 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSURL *imageURL;      // Best available from fallback chain
 @property (nonatomic, copy, nullable) NSURL *lastfmURL;
 @property (nonatomic, copy, nullable) NSString *mbid;       // MusicBrainz ID (optional)
+@property (nonatomic, copy, nullable) NSString *albumName;  // For tracks: the album this track belongs to
 
 /// Create from Last.fm API response dictionary
 + (nullable instancetype)albumFromDictionary:(NSDictionary *)dict;

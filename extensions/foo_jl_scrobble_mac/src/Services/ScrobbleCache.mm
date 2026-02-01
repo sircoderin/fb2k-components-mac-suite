@@ -211,9 +211,13 @@ static const NSTimeInterval kDuplicateWindow = 30 * 60;
             if (tracks && !error) {
                 [self.pendingQueue removeAllObjects];
                 [self.pendingQueue addObjectsFromArray:tracks];
+            } else if (error) {
+                NSLog(@"[Scrobble] Cache decode error: %@ - deleting corrupted file", error.localizedDescription);
+                [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
             }
         } @catch (NSException* exception) {
-            // Corrupted cache - ignore and start fresh
+            NSLog(@"[Scrobble] Cache exception: %@ - deleting corrupted file", exception.reason);
+            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
         }
     });
 }
