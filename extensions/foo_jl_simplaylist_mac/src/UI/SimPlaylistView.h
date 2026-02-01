@@ -70,6 +70,7 @@ extern NSPasteboardType const SimPlaylistPasteboardType;
 @property (nonatomic, assign) NSInteger focusIndex;
 @property (nonatomic, assign) NSInteger playingIndex;  // -1 if not playing
 @property (nonatomic, assign) NSInteger sourcePlaylistIndex;  // For drag validation
+@property (nonatomic, readonly) BOOL isDragging;  // True during active drag operation
 
 // Appearance settings
 @property (nonatomic, assign) BOOL showNowPlayingShading;  // Yellow background for playing row

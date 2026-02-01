@@ -21,7 +21,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 @property (nonatomic, strong) NSTrackingArea *trackingArea;
 @property (nonatomic, assign) NSInteger hoveredRow;
 @property (nonatomic, assign) NSPoint dragStartPoint;
-@property (nonatomic, assign) BOOL isDragging;
+@property (nonatomic, readwrite, assign) BOOL isDragging;
 @property (nonatomic, assign) BOOL suppressFocusRing;  // Suppress focus ring briefly after drag
 @property (nonatomic, assign) NSInteger dropTargetRow;  // Row where items would be dropped
 @property (nonatomic, assign) NSInteger pendingClickRow;  // Row to select on mouseUp if no drag (for multi-select drag)

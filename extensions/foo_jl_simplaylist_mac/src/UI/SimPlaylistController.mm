@@ -669,7 +669,10 @@ struct ReloadOperation {
 
     // Save scroll anchor for BOTH playlist switches AND same-playlist refreshes
     // This prevents visual jumping when items are added/removed
-    if (!isFirstLoad && _scrollView && _scrollAnchorIndices && _currentPlaylistInitialized) {
+    // IMPORTANT: Skip saving if a drag is in progress - drag can trigger playlist switches
+    // when hovering over another playlist, and we don't want to save the mid-drag position
+    if (!isFirstLoad && _scrollView && _scrollAnchorIndices && _currentPlaylistInitialized &&
+        !_playlistView.isDragging) {
         NSInteger anchorIndex = [self firstVisiblePlaylistIndex];
         if (anchorIndex >= 0) {
             _scrollAnchorIndices[@(_currentPlaylistIndex)] = @(anchorIndex);
