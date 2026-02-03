@@ -33,6 +33,7 @@
 @property (nonatomic, strong) NSPopUpButton *displaySizePopup;
 @property (nonatomic, strong) NSPopUpButton *headerSizePopup;
 @property (nonatomic, strong) NSPopUpButton *headerAccentPopup;
+@property (nonatomic, strong) NSPopUpButton *groupHeaderSpacingPopup;
 @property (nonatomic, strong) NSButton *glassBackgroundCheckbox;
 @property (nonatomic, strong) NSArray<GroupPreset *> *presets;
 @property (nonatomic, assign) NSInteger currentPresetIndex;
@@ -124,12 +125,12 @@
     CGFloat displayBoxY = y;
     CGFloat displayContentY = 22;
 
-    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 280)];
+    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 310)];
     displayBox.title = @"Display Settings";
     displayBox.titlePosition = NSAtTop;
     [container addSubview:displayBox];
 
-    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 230)];
+    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 260)];
     displayBox.contentView = displayContent;
 
     // Header Display Style
@@ -221,6 +222,20 @@
     [displayContent addSubview:_headerAccentPopup];
     displayContentY += rowHeight + 4;
 
+    // Group Header Spacing
+    NSTextField *groupHeaderSpacingLabel = [NSTextField labelWithString:@"Group Header Spacing:"];
+    groupHeaderSpacingLabel.frame = NSMakeRect(boxMargin, displayContentY + 3, labelWidth, 20);
+    [displayContent addSubview:groupHeaderSpacingLabel];
+
+    _groupHeaderSpacingPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(boxMargin + labelWidth, displayContentY, 150, 26) pullsDown:NO];
+    [_groupHeaderSpacingPopup addItemWithTitle:@"Compact"];
+    [_groupHeaderSpacingPopup addItemWithTitle:@"Normal"];
+    [_groupHeaderSpacingPopup addItemWithTitle:@"Larger"];
+    _groupHeaderSpacingPopup.target = self;
+    _groupHeaderSpacingPopup.action = @selector(groupHeaderSpacingChanged:);
+    [displayContent addSubview:_groupHeaderSpacingPopup];
+    displayContentY += rowHeight + 4;
+
     // Glass Background
     _glassBackgroundCheckbox = [NSButton checkboxWithTitle:@"Glass background"
                                                     target:self
@@ -228,7 +243,7 @@
     _glassBackgroundCheckbox.frame = NSMakeRect(boxMargin + labelWidth, displayContentY, 280, 20);
     [displayContent addSubview:_glassBackgroundCheckbox];
 
-    y = displayBoxY + 320;
+    y = displayBoxY + 350;
 
     // Help text
     NSTextField *helpText = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, y, 460, 60)];
@@ -316,6 +331,12 @@
         simplaylist_config::kHeaderAccentColor,
         simplaylist_config::kDefaultHeaderAccentColor);
     [_headerAccentPopup selectItemAtIndex:headerAccent];
+
+    // Load group header spacing (0=normal, 1=larger)
+    int64_t groupHeaderSpacing = simplaylist_config::getConfigInt(
+        simplaylist_config::kGroupHeaderSpacing,
+        simplaylist_config::kDefaultGroupHeaderSpacing);
+    [_groupHeaderSpacingPopup selectItemAtIndex:groupHeaderSpacing];
 
     // Load glass background
     bool glassBackground = simplaylist_config::getConfigBool(
@@ -464,6 +485,15 @@
     simplaylist_config::setConfigInt(simplaylist_config::kHeaderAccentColor, accent);
 
     // Needs redraw for header color change
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
+                                                        object:nil];
+}
+
+- (void)groupHeaderSpacingChanged:(id)sender {
+    NSInteger spacing = _groupHeaderSpacingPopup.indexOfSelectedItem;
+    simplaylist_config::setConfigInt(simplaylist_config::kGroupHeaderSpacing, spacing);
+
+    // Needs settings reload for spacing change
     [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
                                                         object:nil];
 }

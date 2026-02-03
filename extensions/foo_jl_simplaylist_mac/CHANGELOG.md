@@ -2,6 +2,25 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.3.2] - 2026-02-03
+
+### Added
+- **Group Header Spacing setting**: Adjustable vertical spacing for group header rows
+  - Compact: Same height as track rows, text centered
+  - Normal: Slightly taller (+6px) for breathing room
+  - Larger: Generous spacing (+12px) for visual separation
+
+### Fixed
+- **Glass background toggle**: No longer requires restart to take effect
+- **Subgroup headers in style 3**: Now display before their tracks (was appearing after)
+- **Memory safety**: Replaced unsafe `__weak` pointers in C++ containers with `NSHashTable`
+- **Cache memory pressure**: Formatted values cache now has bounded size with proper eviction
+- **Path traversal**: Playlist name sanitization prevents directory escape
+
+### Performance
+- **Album art cache**: Batch LRU eviction reduces lock contention during rapid scrolling
+- **Subgroup iteration**: O(log n) binary search replaces O(n) linear scan
+
 ## [1.3.1] - 2026-01-26
 
 ### Fixed
