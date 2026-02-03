@@ -90,7 +90,6 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     // Default metrics
     _rowHeight = simplaylist_config::kDefaultRowHeight;
-    _headerHeight = simplaylist_config::kDefaultHeaderHeight;
     _subgroupHeight = simplaylist_config::kDefaultSubgroupHeight;
     _groupColumnWidth = simplaylist_config::kDefaultGroupColumnWidth;
     _albumArtSize = simplaylist_config::kDefaultAlbumArtSize;
@@ -106,6 +105,16 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     _displaySize = simplaylist_config::getConfigInt(
         simplaylist_config::kDisplaySize,
         simplaylist_config::kDefaultDisplaySize);
+    _groupHeaderSpacing = simplaylist_config::getConfigInt(
+        simplaylist_config::kGroupHeaderSpacing,
+        simplaylist_config::kDefaultGroupHeaderSpacing);
+
+    // Header height based on spacing: Compact (0) = row height, Normal (1) = +6, Larger (2) = +12
+    switch (_groupHeaderSpacing) {
+        case 0:  _headerHeight = _rowHeight; break;
+        case 2:  _headerHeight = _rowHeight + 12; break;
+        default: _headerHeight = _rowHeight + 6; break;
+    }
 
     // PERFORMANCE: Enable layer-backed async drawing
     self.wantsLayer = YES;
@@ -173,15 +182,22 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     fb2k_ui::SizeVariant size = static_cast<fb2k_ui::SizeVariant>(_displaySize);
     _rowHeight = fb2k_ui::rowHeight(size);
 
-    _headerHeight = getConfigInt(kHeaderHeight, kDefaultHeaderHeight);
     _subgroupHeight = getConfigInt(kSubgroupHeight, kDefaultSubgroupHeight);
     _groupColumnWidth = getConfigInt(kGroupColumnWidth, kDefaultGroupColumnWidth);
     _showNowPlayingShading = getConfigBool(kNowPlayingShading, kDefaultNowPlayingShading);
     _headerDisplayStyle = getConfigInt(kHeaderDisplayStyle, kDefaultHeaderDisplayStyle);
     _dimParentheses = getConfigBool(kDimParentheses, kDefaultDimParentheses);
+    _groupHeaderSpacing = getConfigInt(kGroupHeaderSpacing, kDefaultGroupHeaderSpacing);
 
-    [self invalidateIntrinsicContentSize];
-    [self setNeedsDisplay:YES];
+    // Header height based on spacing setting: Compact (0) = row height, Normal (1) = +6, Larger (2) = +12
+    switch (_groupHeaderSpacing) {
+        case 0:  _headerHeight = _rowHeight; break;      // Compact - same as track rows
+        case 2:  _headerHeight = _rowHeight + 12; break; // Larger - generous padding
+        default: _headerHeight = _rowHeight + 6; break;  // Normal - some extra padding
+    }
+
+    // Update frame size to reflect new row heights (header height affects total content height)
+    [self reloadData];
 }
 
 #pragma mark - View Configuration
@@ -676,11 +692,25 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 - (CGFloat)yOffsetForRow:(NSInteger)row {
     if (row < 0) return 0;
     NSInteger totalRows = [self rowCount];
-    if (row >= totalRows) return totalRows * _rowHeight;
+    if (row >= totalRows) return [self totalContentHeightCached];
 
-    // For simplicity, use constant row height for O(1) calculation
-    // Header rows use headerHeight but for now assume equal heights
-    return row * _rowHeight;
+    // Count header rows before this row to account for their extra height
+    NSInteger headerRowsBefore = 0;
+    if (_headerDisplayStyle != 3 && _groupStarts.count > 0) {
+        // Find how many group headers are at row indices < row
+        for (NSInteger g = 0; g < (NSInteger)_groupStarts.count; g++) {
+            NSInteger headerRow = [self rowForGroupHeader:g];
+            if (headerRow < row) {
+                headerRowsBefore++;
+            } else {
+                break;  // Groups are ordered, so no more headers before this row
+            }
+        }
+    }
+
+    // Base offset + extra height from header rows
+    CGFloat extraHeaderHeight = headerRowsBefore * (_headerHeight - _rowHeight);
+    return row * _rowHeight + extraHeaderHeight;
 }
 
 - (NSRect)rectForRow:(NSInteger)row {
@@ -695,14 +725,33 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
 - (NSInteger)rowAtPoint:(NSPoint)point {
     if (point.y < 0) return -1;
-    NSInteger totalRows = [self rowCount];
-    CGFloat totalHeight = totalRows * _rowHeight;
+    CGFloat totalHeight = [self totalContentHeightCached];
     if (point.y >= totalHeight) return -1;
-    return (NSInteger)(point.y / _rowHeight);
+
+    // Binary search to find row at point (accounts for variable header heights)
+    NSInteger totalRows = [self rowCount];
+    NSInteger low = 0, high = totalRows - 1;
+    while (low <= high) {
+        NSInteger mid = (low + high) / 2;
+        CGFloat midY = [self yOffsetForRow:mid];
+        CGFloat midH = [self heightForRow:mid];
+        if (point.y < midY) {
+            high = mid - 1;
+        } else if (point.y >= midY + midH) {
+            low = mid + 1;
+        } else {
+            return mid;
+        }
+    }
+    return -1;
 }
 
 - (CGFloat)totalContentHeightCached {
-    return [self rowCount] * _rowHeight;
+    NSInteger totalRows = [self rowCount];
+    // Account for header rows being taller
+    NSInteger headerRowCount = (_headerDisplayStyle == 3) ? 0 : (NSInteger)_groupStarts.count;
+    CGFloat extraHeaderHeight = headerRowCount * (_headerHeight - _rowHeight);
+    return totalRows * _rowHeight + extraHeaderHeight;
 }
 
 #pragma mark - Drawing (Virtual Scrolling - SPARSE MODEL)
@@ -849,23 +898,24 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     if (_headerDisplayStyle == 1) {
         // Style 1 (Album art aligned): text aligned with album art left edge
-        // Calculate album art X position to align text with it
         CGFloat artX = (_groupColumnWidth - _albumArtSize) / 2;
         if (artX < padding) artX = padding;
         textX = artX;
-        textY = rect.origin.y + 2;  // Near top of row for more spacing from items below
+        // Center text vertically in the (now variable height) row
+        textY = rect.origin.y + (rect.size.height - textSize.height) / 2;
         lineStartX = textX + textSize.width + 12;
         lineY = rect.origin.y + rect.size.height / 2;
     } else if (_headerDisplayStyle == 2) {
-        // Style 2 (Inline): text at top of row for more spacing from tracks below
+        // Style 2 (Inline): text at top of row
         textX = _groupColumnWidth + 8;
-        textY = rect.origin.y + 2;  // Near top of row
+        textY = rect.origin.y + 2;
         lineStartX = lineEndX + 1;  // No line for style 2
         lineY = 0;
     } else {
-        // Style 0: text starts after album art column, near top for more spacing
+        // Style 0: text starts after album art column
         textX = _groupColumnWidth + 8;
-        textY = rect.origin.y + 2;  // Near top of row for more spacing from items below
+        // Center text vertically in the (now variable height) row
+        textY = rect.origin.y + (rect.size.height - textSize.height) / 2;
         lineStartX = textX + textSize.width + 12;
         lineY = rect.origin.y + rect.size.height / 2;
     }
@@ -1182,7 +1232,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     NSInteger count = [self rowCount];
     if (row >= count) {
         // Drop at end - use total content height
-        y = count * _rowHeight;
+        y = [self totalContentHeightCached];
     } else {
         y = [self yOffsetForRow:row];
     }

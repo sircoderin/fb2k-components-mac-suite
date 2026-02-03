@@ -59,6 +59,9 @@ static const char* const kHeaderAccentColor = "header_accent_color";
 // Glass (transparent) background - allows content behind to show through
 static const char* const kGlassBackground = "glass_background";
 
+// Group header spacing: 0 = normal (4px symmetrical), 1 = larger (7px symmetrical)
+static const char* const kGroupHeaderSpacing = "group_header_spacing";
+
 // Default values - row heights sized for 13pt font
 static const int64_t kDefaultRowHeight = 22;
 static const int64_t kDefaultHeaderHeight = 28;
@@ -76,6 +79,7 @@ static const int64_t kDefaultDisplaySize = 1;  // 0=compact, 1=normal, 2=large
 static const int64_t kDefaultColumnHeaderSize = 1;  // 0=compact, 1=normal, 2=large
 static const int64_t kDefaultHeaderAccentColor = 0;  // 0=none, 1=tinted
 static const bool kDefaultGlassBackground = false;   // Opaque background by default
+static const int64_t kDefaultGroupHeaderSpacing = 1; // 0=compact, 1=normal, 2=larger
 
 // Helper functions
 inline std::string getFullKey(const char* key) {

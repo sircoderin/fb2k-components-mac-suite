@@ -78,6 +78,7 @@ extern NSPasteboardType const SimPlaylistPasteboardType;
 @property (nonatomic, assign) BOOL dimParentheses;  // Dim text inside () and []
 @property (nonatomic, assign) NSInteger displaySize;  // 0 = compact, 1 = normal, 2 = large
 @property (nonatomic, assign) BOOL glassBackground;  // Transparent mode for glass effect
+@property (nonatomic, assign) NSInteger groupHeaderSpacing;  // 0 = normal, 1 = larger
 
 // Reload data and redraw
 - (void)reloadData;
