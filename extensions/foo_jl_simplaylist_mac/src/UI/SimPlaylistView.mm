@@ -401,9 +401,18 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     // Count subgroup rows between groupStartRow and this row - O(log n) with NSIndexSet
     NSInteger subgroupsInGroup = 0;
+
+    // For style 3 (inline/no group header), groupStartRow itself might be a subgroup header
+    // In styles 0-2, groupStartRow is always a group header (album title), but in style 3
+    // there's no group header row, so groupStartRow is the first content row which could be
+    // a subgroup header. We need to count it when calculating track positions.
+    if (_headerDisplayStyle == 3 && [self isRowSubgroupHeader:groupStartRow]) {
+        subgroupsInGroup = 1;
+    }
+
     if (row > groupStartRow + 1) {
         NSRange range = NSMakeRange(groupStartRow + 1, row - groupStartRow - 1);
-        subgroupsInGroup = (NSInteger)[_subgroupRowSet countOfIndexesInRange:range];
+        subgroupsInGroup += (NSInteger)[_subgroupRowSet countOfIndexesInRange:range];
     }
 
     // Calculate position within group accounting for subgroups
@@ -448,7 +457,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     // subgroupCountBeforePlaylistIndex counts subgroups with start < playlistIndex
     // But if a subgroup starts at exactly playlistIndex, its header row is BEFORE this track
     NSInteger subgroupsBefore = [self subgroupCountBeforePlaylistIndex:playlistIndex];
-    if ([self hasSubgroupAtPlaylistIndex:playlistIndex]) {
+    BOOL hasSubgroupHere = [self hasSubgroupAtPlaylistIndex:playlistIndex];
+    if (hasSubgroupHere) {
         subgroupsBefore++;
     }
 
@@ -457,7 +467,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
     // Row = playlist index + group headers (if not style 3) + subgroup headers + cumulative padding
     NSInteger cumulativePadding = [self cumulativePaddingBeforeGroup:groupIndex];
-    return playlistIndex + headerRowsOffset + subgroupsBefore + cumulativePadding;
+    NSInteger result = playlistIndex + headerRowsOffset + subgroupsBefore + cumulativePadding;
+
+    return result;
 }
 
 // Clear formatted values cache (call when playlist changes)
@@ -479,6 +491,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     for (NSUInteger i = 0; i < _subgroupStarts.count; i++) {
         NSInteger subgroupPlaylistIndex = [_subgroupStarts[i] integerValue];
         NSInteger subgroupRow = [self rowForSubgroupAtPlaylistIndex:subgroupPlaylistIndex];
+
         if (subgroupRow >= 0) {
             [rowSet addIndex:(NSUInteger)subgroupRow];
             rowToIndex[@(subgroupRow)] = @(i);
