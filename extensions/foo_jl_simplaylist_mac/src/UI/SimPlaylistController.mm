@@ -1071,6 +1071,9 @@ static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgro
                 if (!strongSelf) return;
                 if (_groupDetectionGeneration != currentGeneration) return;
 
+                // Save scroll anchor BEFORE merging groups (new groups shift items)
+                NSInteger anchorPlaylistIndex = [strongSelf firstVisiblePlaylistIndex];
+
                 // Merge with existing groups
                 NSMutableArray *allStarts = [strongSelf.playlistView.groupStarts mutableCopy];
                 NSMutableArray *allHeaders = [strongSelf.playlistView.groupHeaders mutableCopy];
@@ -1117,6 +1120,14 @@ static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgro
                 // Update frame size with complete data
                 CGFloat finalHeight = [strongSelf.playlistView totalContentHeightCached];
                 [strongSelf.playlistView setFrameSize:NSMakeSize(strongSelf.playlistView.frame.size.width, finalHeight)];
+
+                // Restore scroll position (new groups shifted items down)
+                if (anchorPlaylistIndex >= 0) {
+                    NSInteger anchorRow = [strongSelf.playlistView rowForPlaylistIndex:anchorPlaylistIndex];
+                    if (anchorRow >= 0) {
+                        [strongSelf.playlistView scrollRowToVisible:anchorRow];
+                    }
+                }
 
                 // NOW it's safe to save scroll positions - full data available
                 strongSelf->_currentPlaylistInitialized = YES;
@@ -1368,8 +1379,12 @@ static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgro
 }
 
 - (void)handleItemsModified {
-    // Metadata changed - rebuild to update formatted values
-    [self rebuildFromPlaylist];
+    // Metadata changed - clear display cache and redraw
+    // No structural rebuild needed (items weren't added/removed/reordered)
+    // This avoids scroll position disruption during auto-advance playback
+    [_playlistView clearFormattedValuesCache];
+    [self updatePlayingIndicator];
+    [_playlistView setNeedsDisplay:YES];
 }
 
 #pragma mark - Playback Event Handlers

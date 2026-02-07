@@ -2,6 +2,13 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.3.3] - 2026-02-07
+
+### Fixed
+- **Album art and group column misaligned with Group Header Spacing**: Group height calculation used track row height for all rows instead of accounting for taller header rows. Album art and group column backgrounds now use correct pixel height via `pixelHeightForGroup:` helper. Also fixed album art vertical offset to use header height for styles 0/1.
+- **View jumps on auto-advance**: Scrolling no longer jumps dozens/hundreds of tracks back when a new track plays automatically in a long playlist. Metadata updates during playback no longer trigger a full rebuild. Also added scroll preservation in sync detection background continuation.
+- **Enter key plays focused track**: Pressing Enter now correctly starts playback of the keyboard-focused track. Previously broken due to passing a playlist index where a row index was expected, and was restricted to flat mode only.
+
 ## [1.3.2] - 2026-02-03
 
 ### Added

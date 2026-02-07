@@ -754,6 +754,13 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     return totalRows * _rowHeight + extraHeaderHeight;
 }
 
+// Total pixel height of a group (accounts for header row being taller)
+- (CGFloat)pixelHeightForGroup:(NSInteger)groupIndex {
+    NSInteger totalRows = [self totalRowsInGroup:groupIndex];
+    NSInteger headerRows = (_headerDisplayStyle == 3) ? 0 : 1;
+    return headerRows * _headerHeight + (totalRows - headerRows) * _rowHeight;
+}
+
 #pragma mark - Drawing (Virtual Scrolling - SPARSE MODEL)
 
 - (void)drawRect:(NSRect)dirtyRect {
@@ -1143,8 +1150,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         for (NSInteger g = firstGroupIndex; g <= lastGroupIndex && g < (NSInteger)_groupStarts.count; g++) {
             NSInteger groupStartRow = [self rowForGroupHeader:g];
             CGFloat groupTop = [self yOffsetForRow:groupStartRow];
-            CGFloat groupHeight = [self totalRowsInGroup:g] * _rowHeight;
-            CGFloat headerOffset = _rowHeight;  // Style 1 has header rows
+            CGFloat groupHeight = [self pixelHeightForGroup:g];
+            CGFloat headerOffset = _headerHeight;  // Style 1 has header rows
 
             // Fill only below the header row
             NSRect groupColRect = NSMakeRect(0, groupTop + headerOffset, _groupColumnWidth, groupHeight - headerOffset);
@@ -1179,12 +1186,12 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         // Calculate group's row range
         NSInteger groupStartRow = [self rowForGroupHeader:g];
         CGFloat groupTop = [self yOffsetForRow:groupStartRow];
-        CGFloat groupHeight = [self totalRowsInGroup:g] * _rowHeight;
+        CGFloat groupHeight = [self pixelHeightForGroup:g];
 
         // Style 0, 1: Album art is below header row
         // Style 2: Album art starts at header row Y (next to header text in content area)
         // Style 3: No header row, album art at group top
-        CGFloat headerOffset = (_headerDisplayStyle == 0 || _headerDisplayStyle == 1) ? _rowHeight : 0;
+        CGFloat headerOffset = (_headerDisplayStyle == 0 || _headerDisplayStyle == 1) ? _headerHeight : 0;
 
         // Calculate available height for album art (below header if present, minus padding)
         CGFloat availableHeight = groupHeight - headerOffset - padding * 2;
@@ -2354,10 +2361,13 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
             }
             break;
 
-        case '\r':  // Enter - execute default action
-            if (_focusIndex >= 0 && _focusIndex < _flatModeTrackCount &&
+        case '\r':  // Enter - execute default action on focused track
+            if (_focusIndex >= 0 &&
                 [_delegate respondsToSelector:@selector(playlistView:didDoubleClickRow:)]) {
-                [_delegate playlistView:self didDoubleClickRow:_focusIndex];
+                NSInteger row = [self rowForPlaylistIndex:_focusIndex];
+                if (row >= 0) {
+                    [_delegate playlistView:self didDoubleClickRow:row];
+                }
             }
             break;
 
