@@ -2,6 +2,11 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.3.4] - 2026-02-08
+
+### Fixed
+- **Blank rows appearing during scroll**: Rows could appear blank when scrolling into areas where group data had recently changed (e.g. after async group detection). Caused by NSScrollView's copy-on-scroll preserving stale pixels. Fixed by forcing a full visible-rect redraw after group data updates.
+
 ## [1.3.3] - 2026-02-07
 
 ### Fixed

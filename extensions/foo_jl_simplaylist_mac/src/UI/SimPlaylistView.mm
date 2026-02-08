@@ -28,6 +28,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 // Performance: cached row y-offsets for O(1) lookup
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *rowYOffsets;
 @property (nonatomic, assign) CGFloat totalContentHeight;
+@property (nonatomic, assign) BOOL needsFullRedraw;  // Force full visible rect redraw after group data changes
 @end
 
 @implementation SimPlaylistView
@@ -257,6 +258,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         [self setFrameSize:contentSize];
         [self invalidateIntrinsicContentSize];
     }
+    // Force full visible rect redraw on next drawRect: to prevent stale
+    // copy-on-scroll pixels when group data has changed
+    _needsFullRedraw = YES;
     [self setNeedsDisplay:YES];
 }
 
@@ -765,6 +769,14 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
 - (void)drawRect:(NSRect)dirtyRect {
     [super drawRect:dirtyRect];
+
+    // After group data changes, NSScrollView's copy-on-scroll may have copied stale
+    // pixels from before the change. Expand dirtyRect to full visible rect to ensure
+    // all visible rows are redrawn with current data.
+    if (_needsFullRedraw) {
+        _needsFullRedraw = NO;
+        dirtyRect = [self visibleRect];
+    }
 
     // Background - skip for glass mode to let underlying effect show through
     if (!_glassBackground) {

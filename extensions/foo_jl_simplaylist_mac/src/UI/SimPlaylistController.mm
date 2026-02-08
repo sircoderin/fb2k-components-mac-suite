@@ -1132,7 +1132,7 @@ static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgro
                 // NOW it's safe to save scroll positions - full data available
                 strongSelf->_currentPlaylistInitialized = YES;
 
-                [strongSelf.playlistView setNeedsDisplay:YES];
+                [strongSelf.playlistView reloadData];
             });
         });
     } else {
@@ -1295,7 +1295,7 @@ static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgro
                 [strongSelf scheduleDeferredScrollRestore];
             }
 
-            [strongSelf.playlistView setNeedsDisplay:YES];
+            [strongSelf.playlistView reloadData];
         });
     });
 }
