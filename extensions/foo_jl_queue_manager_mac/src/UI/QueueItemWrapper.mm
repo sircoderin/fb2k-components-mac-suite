@@ -7,6 +7,7 @@
 
 #import "QueueItemWrapper.h"
 #include "../Core/QueueOperations.h"
+#include "../Core/QueueConfig.h"
 
 @implementation QueueItemWrapper
 
@@ -18,7 +19,7 @@
         _queueIndex = index;
 
         // Handle orphan items (m_playlist == ~0)
-        if (item.m_playlist == ~(size_t)0) {
+        if (item.m_playlist == queue_config::kOrphanPlaylistIndex) {
             _sourcePlaylist = NSNotFound;
             _sourceItem = NSNotFound;
         } else {
@@ -46,26 +47,11 @@
 }
 
 - (BOOL)isValid {
-    if ([self isOrphan]) {
-        return YES;  // Orphans are always "valid"
-    }
-
-    auto pm = playlist_manager::get();
-
-    // Check playlist exists
-    if (_sourcePlaylist >= pm->get_playlist_count()) {
-        return NO;
-    }
-
-    // Check item index valid
-    if (_sourceItem >= pm->playlist_get_item_count(_sourcePlaylist)) {
-        return NO;
-    }
-
-    // Check handle matches
-    metadb_handle_ptr check;
-    pm->playlist_get_item_handle(check, _sourcePlaylist, _sourceItem);
-    return check == _handle;
+    t_playback_queue_item item;
+    item.m_handle = _handle;
+    item.m_playlist = [self isOrphan] ? queue_config::kOrphanPlaylistIndex : _sourcePlaylist;
+    item.m_item = [self isOrphan] ? queue_config::kOrphanPlaylistIndex : _sourceItem;
+    return queue_ops::isItemValid(item);
 }
 
 - (NSString*)formatWithPattern:(NSString*)pattern {
@@ -74,14 +60,20 @@
     }
 
     try {
-        titleformat_object::ptr script;
-        titleformat_compiler::get()->compile_safe(script, [pattern UTF8String]);
+        titleformat_object::ptr script = queue_ops::getCompiledScript([pattern UTF8String]);
 
         pfc::string8 result;
         _handle->format_title(nullptr, result, script, nullptr);
 
-        return [NSString stringWithUTF8String:result.c_str()];
+        NSString* converted = [NSString stringWithUTF8String:result.c_str()];
+        return converted ?: @"[Invalid UTF-8]";
+    } catch (const std::exception& e) {
+        pfc::string8 msg;
+        msg << "[Queue Manager] Title format error: " << e.what();
+        console::error(msg);
+        return @"[Error]";
     } catch (...) {
+        console::error("[Queue Manager] Unknown title format error");
         return @"[Error]";
     }
 }
@@ -90,29 +82,11 @@
     // Cache Artist - Title
     _cachedArtistTitle = [self formatWithPattern:@"[%artist% - ]%title%"];
 
-    // Cache duration
-    if (_handle.is_valid()) {
-        double length = _handle->get_length();
-        if (length > 0) {
-            int seconds = static_cast<int>(length);
-            int minutes = seconds / 60;
-            seconds = seconds % 60;
-
-            if (minutes >= 60) {
-                int hours = minutes / 60;
-                minutes = minutes % 60;
-                _cachedDuration = [NSString stringWithFormat:@"%d:%02d:%02d",
-                                   hours, minutes, seconds];
-            } else {
-                _cachedDuration = [NSString stringWithFormat:@"%d:%02d",
-                                   minutes, seconds];
-            }
-        } else {
-            _cachedDuration = @"--:--";
-        }
-    } else {
-        _cachedDuration = @"--:--";
-    }
+    // Cache duration using shared formatting logic
+    t_playback_queue_item item;
+    item.m_handle = _handle;
+    pfc::string8 duration = queue_ops::formatDuration(item);
+    _cachedDuration = [NSString stringWithUTF8String:duration.c_str()] ?: @"--:--";
 }
 
 @end

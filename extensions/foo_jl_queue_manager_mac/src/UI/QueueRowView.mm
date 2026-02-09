@@ -10,19 +10,29 @@
 
 @implementation QueueRowView
 
+- (void)viewDidMoveToSuperview {
+    [super viewDidMoveToSuperview];
+    // Cache transparent mode when added to hierarchy
+    _transparentModeCached = NO;
+}
+
 - (BOOL)isTransparentMode {
-    // Check if table view has clear background (transparent mode)
-    // Navigate up hierarchy to find the table view
+    if (_transparentModeCached) {
+        return _cachedTransparentMode;
+    }
+
+    _cachedTransparentMode = NO;
     NSView* view = self.superview;
     while (view) {
         if ([view isKindOfClass:[NSTableView class]]) {
             NSTableView* tableView = (NSTableView*)view;
-            // Use alpha component check for more reliable detection
-            return tableView.backgroundColor.alphaComponent < 0.1;
+            _cachedTransparentMode = tableView.backgroundColor.alphaComponent < 0.1;
+            break;
         }
         view = view.superview;
     }
-    return NO;
+    _transparentModeCached = YES;
+    return _cachedTransparentMode;
 }
 
 - (void)drawSelectionInRect:(NSRect)dirtyRect {

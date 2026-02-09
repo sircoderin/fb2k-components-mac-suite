@@ -84,10 +84,6 @@
 - (void)transparentBackgroundChanged:(id)sender {
     using namespace queue_config;
     setConfigBool(kKeyTransparentBackground, _transparentBackgroundCheckbox.state == NSControlStateValueOn);
-
-    // Post notification for any live update (though restart is needed for full effect)
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"QueueManagerSettingsChanged"
-                                                        object:nil];
 }
 
 @end

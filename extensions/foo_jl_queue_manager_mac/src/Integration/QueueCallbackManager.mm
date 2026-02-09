@@ -9,6 +9,10 @@
 #import "../UI/QueueManagerController.h"
 #import <Foundation/Foundation.h>
 
+QueueCallbackManager::QueueCallbackManager() {
+    m_controllers = [NSPointerArray weakObjectsPointerArray];
+}
+
 QueueCallbackManager& QueueCallbackManager::instance() {
     static QueueCallbackManager instance;
     return instance;
@@ -16,48 +20,53 @@ QueueCallbackManager& QueueCallbackManager::instance() {
 
 void QueueCallbackManager::registerController(QueueManagerController* controller) {
     std::lock_guard<std::mutex> lock(m_mutex);
-
-    // Store as a bridged pointer (controller is __weak in practice)
-    // We'll clean up nil references in onQueueChanged
-    m_controllers.push_back((__bridge void*)controller);
+    [m_controllers addPointer:(__bridge void*)controller];
 }
 
 void QueueCallbackManager::unregisterController(QueueManagerController* controller) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    auto it = std::find(m_controllers.begin(), m_controllers.end(), (__bridge void*)controller);
-    if (it != m_controllers.end()) {
-        m_controllers.erase(it);
+    for (NSUInteger i = 0; i < m_controllers.count; i++) {
+        void* ptr = [m_controllers pointerAtIndex:i];
+        if (ptr == (__bridge void*)controller) {
+            [m_controllers removePointerAtIndex:i];
+            break;
+        }
     }
 }
 
 void QueueCallbackManager::onQueueChanged(playback_queue_callback::t_change_origin origin) {
-    // Capture controllers to notify (under lock)
-    std::vector<QueueManagerController*> controllersToNotify;
+    // Collect controllers to notify under lock, using NSArray for ARC retention
+    NSMutableArray<QueueManagerController*>* controllersToNotify = [NSMutableArray array];
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
-        // Clean up nil references and collect valid controllers
-        std::vector<void*> validControllers;
-        for (void* ptr : m_controllers) {
-            QueueManagerController* controller = (__bridge QueueManagerController*)ptr;
-            if (controller != nil) {
-                validControllers.push_back(ptr);
-                controllersToNotify.push_back(controller);
+        // Compact removes zeroed-out weak references
+        [m_controllers compact];
+
+        for (NSUInteger i = 0; i < m_controllers.count; i++) {
+            QueueManagerController* controller =
+                (__bridge QueueManagerController*)[m_controllers pointerAtIndex:i];
+            if (controller) {
+                [controllersToNotify addObject:controller];
             }
         }
-        m_controllers = validControllers;
     }
 
-    // Dispatch to main thread
+    // Coalesce rapid callbacks: cancel pending reload and schedule a new one.
+    // Multiple callbacks within 50ms window result in a single reload.
     dispatch_async(dispatch_get_main_queue(), ^{
-        for (QueueManagerController* controller : controllersToNotify) {
-            // Skip if controller is in the middle of reordering (debounce)
+        for (QueueManagerController* controller in controllersToNotify) {
             if (controller.isReorderingInProgress) {
                 continue;
             }
-            [controller reloadQueueContents];
+            [NSObject cancelPreviousPerformRequestsWithTarget:controller
+                                                     selector:@selector(reloadQueueContents)
+                                                       object:nil];
+            [controller performSelector:@selector(reloadQueueContents)
+                             withObject:nil
+                             afterDelay:0.05];
         }
     });
 }

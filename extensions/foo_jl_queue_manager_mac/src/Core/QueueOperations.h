@@ -3,15 +3,20 @@
 //  foo_jl_queue_manager
 //
 //  Wrapper for SDK queue operations
-//  All operations are thread-safe and run on main thread
+//  All operations must be called from the main thread
 //
 
 #pragma once
 
 #include <foobar2000/SDK/foobar2000.h>
 #include <vector>
+#include <string>
 
 namespace queue_ops {
+
+// Get a cached compiled titleformat script for a pattern string.
+// Avoids recompiling the same format on every call.
+titleformat_object::ptr getCompiledScript(const char* formatString);
 
 // Get number of items in queue
 size_t getCount();

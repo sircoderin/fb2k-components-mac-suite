@@ -6,8 +6,25 @@
 //
 
 #include "QueueOperations.h"
+#include "QueueConfig.h"
+#include <unordered_map>
 
 namespace queue_ops {
+
+titleformat_object::ptr getCompiledScript(const char* formatString) {
+    static std::unordered_map<std::string, titleformat_object::ptr> cache;
+
+    std::string key(formatString);
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+        return it->second;
+    }
+
+    titleformat_object::ptr script;
+    titleformat_compiler::get()->compile_safe(script, formatString);
+    cache[key] = script;
+    return script;
+}
 
 size_t getCount() {
     auto pm = playlist_manager::get();
@@ -87,13 +104,15 @@ bool isItemValid(const t_playback_queue_item& item) {
 
     // Check handle matches
     metadb_handle_ptr check;
-    pm->playlist_get_item_handle(check, item.m_playlist, item.m_item);
+    if (!pm->playlist_get_item_handle(check, item.m_playlist, item.m_item)) {
+        return false;
+    }
     return check == item.m_handle;
 }
 
 bool isOrphanItem(const t_playback_queue_item& item) {
     // Orphan items have m_playlist set to ~0 (SIZE_MAX)
-    return item.m_playlist == ~(size_t)0;
+    return item.m_playlist == queue_config::kOrphanPlaylistIndex;
 }
 
 bool playItem(const t_playback_queue_item& item) {
@@ -122,10 +141,15 @@ pfc::string8 formatItem(const t_playback_queue_item& item, const char* formatStr
     }
 
     try {
-        titleformat_object::ptr script;
-        titleformat_compiler::get()->compile_safe(script, formatString);
+        titleformat_object::ptr script = getCompiledScript(formatString);
         item.m_handle->format_title(nullptr, result, script, nullptr);
+    } catch (const std::exception& e) {
+        pfc::string8 msg;
+        msg << "[Queue Manager] Title format error: " << e.what();
+        console::error(msg);
+        result = "[Error]";
     } catch (...) {
+        console::error("[Queue Manager] Unknown title format error");
         result = "[Error]";
     }
 

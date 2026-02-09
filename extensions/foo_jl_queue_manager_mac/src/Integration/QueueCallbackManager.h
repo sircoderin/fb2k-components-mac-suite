@@ -10,7 +10,6 @@
 
 #include <foobar2000/SDK/foobar2000.h>
 #include <mutex>
-#include <vector>
 
 #ifdef __OBJC__
 @class QueueManagerController;
@@ -33,7 +32,7 @@ public:
     void onQueueChanged(playback_queue_callback::t_change_origin origin);
 
 private:
-    QueueCallbackManager() = default;
+    QueueCallbackManager();
     ~QueueCallbackManager() = default;
 
     // Non-copyable
@@ -42,7 +41,10 @@ private:
 
     std::mutex m_mutex;
 
-    // Using void* to store __weak references in C++
-    // The actual weak reference handling is done in the .mm file
-    std::vector<void*> m_controllers;
+#ifdef __OBJC__
+    // Weak object pointer array - automatically zeroes references on dealloc
+    NSPointerArray* m_controllers;
+#else
+    void* m_controllers;
+#endif
 };

@@ -50,6 +50,9 @@ static const ColumnInfo kAvailableColumns[] = {
 
 static const size_t kAvailableColumnsCount = sizeof(kAvailableColumns) / sizeof(kAvailableColumns[0]);
 
+// Orphan item sentinel value (item not from any playlist)
+static const size_t kOrphanPlaylistIndex = ~(size_t)0;
+
 // UI sizing (uses shared styles from UIStyles.h for actual values)
 static const int kMinWidth = 150;
 static const int kMinHeight = 100;

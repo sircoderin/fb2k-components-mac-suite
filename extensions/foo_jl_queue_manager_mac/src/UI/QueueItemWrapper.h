@@ -39,11 +39,11 @@
 // Get the underlying handle (for SDK operations)
 - (metadb_handle_ptr)handle;
 
-// Check if this is an orphan item (not from a playlist)
-- (BOOL)isOrphan;
+// Whether this is an orphan item (not from a playlist)
+@property (nonatomic, readonly, getter=isOrphan) BOOL orphan;
 
-// Check if the playlist/item references are still valid
-- (BOOL)isValid;
+// Whether the playlist/item references are still valid
+@property (nonatomic, readonly, getter=isValid) BOOL valid;
 
 // Format display text using title format pattern
 - (NSString*)formatWithPattern:(NSString*)pattern;

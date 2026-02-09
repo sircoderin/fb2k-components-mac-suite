@@ -8,7 +8,6 @@
 #import "QueueManagerController.h"
 #import "QueueItemWrapper.h"
 #import "QueueRowView.h"
-#import "QueueHeaderView.h"
 #import "../Integration/QueueCallbackManager.h"
 #import "../Core/QueueOperations.h"
 #import "../Core/QueueConfig.h"
@@ -48,35 +47,35 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
 }
 
 - (void)loadView {
-    // Create container view - use shared glass helper for transparent mode
-    NSView* container;
+    // Create root view
+    NSView* rootView;
+
     if (_transparentBackground) {
-        container = fb2k_ui::createGlassContainer(NSMakeRect(0, 0, 300, 200));
+        // Use NSVisualEffectView for true transparency/vibrancy
+        NSVisualEffectView* effectView = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0, 0, 300, 200)];
+        effectView.material = NSVisualEffectMaterialSidebar;
+        effectView.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+        effectView.state = NSVisualEffectStateFollowsWindowActiveState;
+        rootView = effectView;
     } else {
-        container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 300, 200)];
+        rootView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 300, 200)];
+        rootView.wantsLayer = YES;
+        rootView.layer.backgroundColor = fb2k_ui::backgroundColor().CGColor;
     }
-    container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    self.view = container;
+    rootView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.view = rootView;
 
-    // Use compact header size (22px) to match queue manager's design
-    CGFloat headerHeight = fb2k_ui::headerHeight(fb2k_ui::SizeVariant::Compact);
-    CGFloat containerHeight = 200;
-
-    // Create custom header bar at TOP (like SimPlaylist)
-    // In non-flipped view, y increases upward, so top = containerHeight - headerHeight
-    _headerView = [[QueueHeaderView alloc] initWithFrame:NSMakeRect(0, containerHeight - headerHeight, 300, headerHeight)];
-    _headerView.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    _headerView.glassBackground = _transparentBackground;
-    [container addSubview:_headerView];
-
-    // Create scroll view BELOW header (from y=0 to y=containerHeight-headerHeight)
-    _scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 300, containerHeight - headerHeight)];
+    // Create scroll view for table
+    _scrollView = [[NSScrollView alloc] initWithFrame:rootView.bounds];
     _scrollView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _scrollView.hasVerticalScroller = YES;
     _scrollView.hasHorizontalScroller = NO;
     _scrollView.borderType = NSNoBorder;
-    _scrollView.wantsLayer = YES;  // Enable smooth scrolling optimizations
-    [container addSubview:_scrollView];
+    _scrollView.drawsBackground = !_transparentBackground;
+    if (!_transparentBackground) {
+        _scrollView.backgroundColor = fb2k_ui::backgroundColor();
+    }
+    [rootView addSubview:_scrollView];
 
     // Create table view with SimPlaylist-matching appearance
     _tableView = [[NSTableView alloc] initWithFrame:_scrollView.bounds];
@@ -85,26 +84,34 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
     _tableView.rowHeight = fb2k_ui::rowHeight(fb2k_ui::SizeVariant::Normal);
     _tableView.allowsMultipleSelection = YES;
     _tableView.allowsEmptySelection = YES;
+    _tableView.usesAlternatingRowBackgroundColors = NO;
+    _tableView.backgroundColor = _transparentBackground ? [NSColor clearColor] : fb2k_ui::backgroundColor();
     _tableView.doubleAction = @selector(tableViewDoubleClick:);
     _tableView.target = self;
     _tableView.intercellSpacing = NSMakeSize(0, 0);
     _tableView.gridStyleMask = NSTableViewGridNone;
     _tableView.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
-
-    // HIDE the built-in table header - we use our own custom header bar
-    _tableView.headerView = nil;
+    _tableView.columnAutoresizingStyle = NSTableViewUniformColumnAutoresizingStyle;
 
     // Set up columns (hardcoded for Phase 1)
     [self setupColumns];
 
+    // Configure header view with SimPlaylist-matching style and height
+    NSTableHeaderView* headerView = [[NSTableHeaderView alloc] init];
+    NSRect headerFrame = headerView.frame;
+    headerFrame.size.height = fb2k_ui::headerHeight(fb2k_ui::SizeVariant::Normal);
+    headerView.frame = headerFrame;
+    _tableView.headerView = headerView;
+
     _scrollView.documentView = _tableView;
 
-    // Configure scroll view and table view for glass mode using shared helpers
-    fb2k_ui::configureScrollViewForGlass(_scrollView, _transparentBackground);
-    fb2k_ui::configureTableViewForGlass(_tableView, _transparentBackground);
-
-    // Sync header column widths with table columns
-    [self syncHeaderWithTableColumns];
+    // Set clip view background to match (this fills the empty area below rows)
+    if (_transparentBackground) {
+        _scrollView.contentView.drawsBackground = NO;
+    } else {
+        _scrollView.contentView.drawsBackground = YES;
+        _scrollView.contentView.backgroundColor = fb2k_ui::backgroundColor();
+    }
 
     // Create status bar
     [self setupStatusBar];
@@ -135,7 +142,8 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
     indexColumn.width = 30;
     indexColumn.minWidth = 30;
     indexColumn.maxWidth = 50;
-    indexColumn.resizingMask = NSTableColumnNoResizing;
+    indexColumn.resizingMask = NSTableColumnUserResizingMask;
+    indexColumn.headerCell = [[NSTableHeaderCell alloc] initTextCell:@"#"];
     [_tableView addTableColumn:indexColumn];
 
     // Column 2: Artist - Title (flex width)
@@ -144,6 +152,7 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
     titleColumn.width = 200;
     titleColumn.minWidth = 100;
     titleColumn.resizingMask = NSTableColumnAutoresizingMask | NSTableColumnUserResizingMask;
+    titleColumn.headerCell = [[NSTableHeaderCell alloc] initTextCell:@"Artist - Title"];
     [_tableView addTableColumn:titleColumn];
 
     // Column 3: Duration (narrow, fixed width)
@@ -152,23 +161,13 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
     durationColumn.width = 60;
     durationColumn.minWidth = 50;
     durationColumn.maxWidth = 80;
-    durationColumn.resizingMask = NSTableColumnNoResizing;
+    durationColumn.resizingMask = NSTableColumnUserResizingMask;
+    durationColumn.headerCell = [[NSTableHeaderCell alloc] initTextCell:@"Duration"];
     [_tableView addTableColumn:durationColumn];
 }
 
-- (void)syncHeaderWithTableColumns {
-    // Sync our custom header bar column widths with the table columns
-    NSArray<NSTableColumn*>* columns = _tableView.tableColumns;
-    if (columns.count >= 3) {
-        _headerView.indexColumnWidth = columns[0].width;
-        _headerView.titleColumnWidth = columns[1].width;
-        _headerView.durationColumnWidth = columns[2].width;
-        [_headerView setNeedsDisplay:YES];
-    }
-}
-
 - (void)setupStatusBar {
-    CGFloat statusHeight = fb2k_ui::headerHeight(fb2k_ui::SizeVariant::Compact);
+    CGFloat statusHeight = fb2k_ui::headerHeight(fb2k_ui::SizeVariant::Normal);
     CGFloat leftPadding = fb2k_ui::kHeaderTextPadding;
     NSRect statusFrame = NSMakeRect(leftPadding, 0, self.view.bounds.size.width - leftPadding, statusHeight);
 
@@ -609,7 +608,12 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
 #pragma mark - Keyboard Handling
 
 - (void)keyDown:(NSEvent*)event {
-    unichar key = [[event charactersIgnoringModifiers] characterAtIndex:0];
+    NSString *chars = [event charactersIgnoringModifiers];
+    if (chars.length == 0) {
+        [super keyDown:event];
+        return;
+    }
+    unichar key = [chars characterAtIndex:0];
 
     if (key == NSDeleteCharacter || key == NSBackspaceCharacter) {
         [self removeSelectedItems];

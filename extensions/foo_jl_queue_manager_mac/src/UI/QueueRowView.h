@@ -9,5 +9,8 @@
 
 #import <Cocoa/Cocoa.h>
 
-@interface QueueRowView : NSTableRowView
+@interface QueueRowView : NSTableRowView {
+    BOOL _cachedTransparentMode;
+    BOOL _transparentModeCached;
+}
 @end

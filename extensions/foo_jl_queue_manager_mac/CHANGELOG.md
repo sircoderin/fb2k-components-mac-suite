@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.2] - 2026-02-09
+
+### Changed
+
+- **Native Table Header**: Switched from custom QueueHeaderView to native NSTableHeaderView for proper resize support
+- **Column Resizing**: All column header dividers are now draggable; title column auto-flexes to fill available space
+
+### Fixed
+
+- **Column Resize**: Header columns can now be resized by dragging dividers (was blocked due to autoresizing style conflict)
+- **SimPlaylist Drag/Drop**: Restored NSDictionary format handling for drops from SimPlaylist
+
 ## [1.1.0] - 2026-01-22
 
 ### Changed
