@@ -4,6 +4,10 @@ All notable changes to SimPlaylist will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Drag to Finder**: Drag tracks from SimPlaylist to Finder to copy files out. Default behavior is copy; a preference toggle enables move-by-default (hold OPT to copy).
+- **Debug rendering diagnostics**: Optional overlay showing diagnostic info on blank/unmapped rows (red) or nil column values (orange). Enable in Display Settings preferences.
+
 ### Fixed
 - **Album art cache eviction**: Replaced `NSCache` (which silently evicts under memory pressure) with a manual LRU dictionary. Album art no longer blinks or disappears during fast scrolling.
 - **Stale subgroup caches on empty playlists**: Subgroup/padding caches are now cleared in all early-return paths of `rebuildFromPlaylist`, preventing stale data from a previous playlist.

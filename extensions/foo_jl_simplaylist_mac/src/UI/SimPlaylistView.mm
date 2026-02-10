@@ -16,6 +16,30 @@
 NSString *const SimPlaylistSettingsChangedNotification = @"SimPlaylistSettingsChanged";
 NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.rows";
 
+// Wraps NSURL pasteboard writing and adds SimPlaylistPasteboardType.
+// NSURL's native writing is required for Finder to accept drops.
+// The custom type is needed for cross-playlist drops (Plorg, other SimPlaylist panels).
+@interface SimPlaylistDragItem : NSObject <NSPasteboardWriting>
+@property (nonatomic, strong) NSURL *fileURL;
+@property (nonatomic, strong) NSData *internalData;
+@end
+
+@implementation SimPlaylistDragItem
+- (NSArray<NSPasteboardType> *)writableTypesForPasteboard:(NSPasteboard *)pasteboard {
+    NSMutableArray *types = [NSMutableArray arrayWithArray:[_fileURL writableTypesForPasteboard:pasteboard]];
+    if (_internalData) {
+        [types addObject:SimPlaylistPasteboardType];
+    }
+    return types;
+}
+- (id)pasteboardPropertyListForType:(NSPasteboardType)type {
+    if ([type isEqualToString:SimPlaylistPasteboardType]) {
+        return _internalData;
+    }
+    return [_fileURL pasteboardPropertyListForType:type];
+}
+@end
+
 @interface SimPlaylistView ()
 @property (nonatomic, assign) NSInteger selectionAnchor;  // For shift-click selection
 @property (nonatomic, strong) NSTrackingArea *trackingArea;
@@ -29,6 +53,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *rowYOffsets;
 @property (nonatomic, assign) CGFloat totalContentHeight;
 @property (nonatomic, assign) BOOL needsFullRedraw;  // Force full visible rect redraw after group data changes
+@property (nonatomic, assign) BOOL debugRendering;   // Show diagnostic text on rendering anomalies
+@property (nonatomic, strong) NSDictionary *currentDragData;  // Internal drag data, passed via draggingSource
 @end
 
 @implementation SimPlaylistView
@@ -189,6 +215,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     _headerDisplayStyle = getConfigInt(kHeaderDisplayStyle, kDefaultHeaderDisplayStyle);
     _dimParentheses = getConfigBool(kDimParentheses, kDefaultDimParentheses);
     _groupHeaderSpacing = getConfigInt(kGroupHeaderSpacing, kDefaultGroupHeaderSpacing);
+    _debugRendering = getConfigBool(kDebugRendering, kDefaultDebugRendering);
 
     // Header height based on spacing setting: Compact (0) = row height, Normal (1) = +6, Larger (2) = +12
     switch (_groupHeaderSpacing) {
@@ -856,6 +883,33 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     BOOL isPadding = [self isRowPaddingRow:row];
     NSInteger playlistIndex = (isHeader || isSubgroupHeader || isPadding) ? -1 : [self playlistIndexForRow:row];
 
+    // Unmapped row: draw debug diagnostic if enabled, otherwise skip silently
+    if (!isHeader && !isSubgroupHeader && !isPadding && playlistIndex < 0) {
+        if (_debugRendering) {
+            NSInteger groupIndex = [self groupIndexForRow:row];
+            NSInteger headerRow = [self rowForGroupHeader:groupIndex];
+            NSInteger rowInGroup = row - headerRow;
+            NSInteger gStart = (groupIndex >= 0 && groupIndex < (NSInteger)_groupStarts.count)
+                ? [_groupStarts[groupIndex] integerValue] : -1;
+            NSInteger gEnd = (groupIndex + 1 < (NSInteger)_groupStarts.count)
+                ? [_groupStarts[groupIndex + 1] integerValue] : _itemCount;
+            NSInteger subgroupsInGroup = (groupIndex < (NSInteger)_subgroupCountPerGroup.count)
+                ? [_subgroupCountPerGroup[groupIndex] integerValue] : 0;
+            NSInteger paddingInGroup = (groupIndex < (NSInteger)_groupPaddingRows.count)
+                ? [_groupPaddingRows[groupIndex] integerValue] : 0;
+            NSString *diag = [NSString stringWithFormat:@"BLANK r%ld g%ld rIG%ld gS%ld-%ld sg%ld pad%ld tot%ld",
+                              (long)row, (long)groupIndex, (long)rowInGroup,
+                              (long)gStart, (long)gEnd, (long)subgroupsInGroup,
+                              (long)paddingInGroup, (long)[self rowCount]];
+            NSDictionary *attrs = @{
+                NSFontAttributeName: [NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightRegular],
+                NSForegroundColorAttributeName: [NSColor systemRedColor]
+            };
+            [diag drawInRect:NSMakeRect(_groupColumnWidth + 4, rect.origin.y + 2, rect.size.width - _groupColumnWidth - 8, rect.size.height - 4) withAttributes:attrs];
+        }
+        return;
+    }
+
     // Padding rows are empty - just return (background already drawn)
     if (isPadding) {
         return;
@@ -1078,7 +1132,15 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     }
 
     if (!columnValues) {
-        return;  // Nothing to draw
+        if (_debugRendering) {
+            NSString *diag = [NSString stringWithFormat:@"NIL VALUES idx%ld", (long)playlistIndex];
+            NSDictionary *attrs = @{
+                NSFontAttributeName: [NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightRegular],
+                NSForegroundColorAttributeName: [NSColor systemOrangeColor]
+            };
+            [diag drawInRect:NSMakeRect(_groupColumnWidth + 4, rect.origin.y + 2, rect.size.width - _groupColumnWidth - 8, rect.size.height - 4) withAttributes:attrs];
+        }
+        return;
     }
 
     // Draw columns
@@ -2193,30 +2255,27 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         }
     }
 
-    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:dragData
-                                         requiringSecureCoding:NO
-                                                         error:nil];
+    // Store internal drag data on the view — retrieved via draggingSource in performDragOperation
+    // This avoids putting custom pasteboard types alongside file URLs, which breaks Finder drops
+    _currentDragData = dragData;
 
-    NSPasteboardItem *pbItem = [[NSPasteboardItem alloc] init];
-    [pbItem setData:data forType:SimPlaylistPasteboardType];
-
-    // Create dragging image
-    NSDraggingItem *dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:pbItem];
-
-    // Use selection bounds as frame
-    // Note: _selectedIndices contains playlist indices, need to convert to row indices
-    __block NSRect selectionBounds = NSZeroRect;
-    [_selectedIndices enumerateIndexesUsingBlock:^(NSUInteger playlistIdx, BOOL *stop) {
-        NSInteger rowIdx = [self rowForPlaylistIndex:playlistIdx];
-        if (rowIdx >= 0) {
-            NSRect rowRect = [self rectForRow:rowIdx];
-            if (NSIsEmptyRect(selectionBounds)) {
-                selectionBounds = rowRect;
-            } else {
-                selectionBounds = NSUnionRect(selectionBounds, rowRect);
+    // Build file URLs for Finder compatibility
+    // Uses SDK filesystem::g_get_native_path() to resolve all foobar2000 path schemes
+    // (file://, mac-volume://, etc.) to POSIX paths
+    NSMutableArray<NSURL *> *fileURLs = [NSMutableArray array];
+    NSArray<NSString *> *dragPaths = dragData[@"paths"];
+    if (dragPaths) {
+        for (NSString *path in dragPaths) {
+            pfc::string8 nativePath;
+            if (filesystem::g_get_native_path(path.UTF8String, nativePath)) {
+                NSString *posix = [NSString stringWithUTF8String:nativePath.c_str()];
+                if (posix && [[NSFileManager defaultManager] fileExistsAtPath:posix]) {
+                    NSURL *url = [NSURL fileURLWithPath:posix];
+                    if (url) [fileURLs addObject:url];
+                }
             }
         }
-    }];
+    }
 
     // Create a simple drag image
     NSImage *dragImage = [NSImage imageWithSize:NSMakeSize(200, 30) flipped:YES drawingHandler:^BOOL(NSRect dstRect) {
@@ -2235,8 +2294,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         return YES;
     }];
 
-    dragItem.draggingFrame = NSMakeRect(location.x - 100, location.y - 15, 200, 30);
-    dragItem.imageComponentsProvider = ^NSArray<NSDraggingImageComponent *> *{
+    NSRect dragFrame = NSMakeRect(location.x - 100, location.y - 15, 200, 30);
+    NSArray<NSDraggingImageComponent *> *(^imageProvider)(void) = ^{
         NSDraggingImageComponent *component = [[NSDraggingImageComponent alloc]
                                                initWithKey:NSDraggingImageComponentIconKey];
         component.contents = dragImage;
@@ -2244,7 +2303,35 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         return @[component];
     };
 
-    [self beginDraggingSessionWithItems:@[dragItem] event:event source:self];
+    // Archive internal data for pasteboard
+    NSData *internalData = [NSKeyedArchiver archivedDataWithRootObject:dragData
+                                                 requiringSecureCoding:NO
+                                                                 error:nil];
+
+    NSMutableArray<NSDraggingItem *> *dragItems = [NSMutableArray array];
+
+    if (fileURLs.count > 0) {
+        // Use SimPlaylistDragItem: wraps NSURL writing (Finder compatible) + internal type
+        for (NSURL *url in fileURLs) {
+            SimPlaylistDragItem *writer = [[SimPlaylistDragItem alloc] init];
+            writer.fileURL = url;
+            writer.internalData = internalData;
+            NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:writer];
+            item.draggingFrame = dragFrame;
+            item.imageComponentsProvider = imageProvider;
+            [dragItems addObject:item];
+        }
+    } else {
+        // No file URLs (cloud/non-local tracks) — internal type only
+        NSPasteboardItem *pbItem = [[NSPasteboardItem alloc] init];
+        [pbItem setData:internalData forType:SimPlaylistPasteboardType];
+        NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:pbItem];
+        item.draggingFrame = dragFrame;
+        item.imageComponentsProvider = imageProvider;
+        [dragItems addObject:item];
+    }
+
+    [self beginDraggingSessionWithItems:dragItems event:event source:self];
 }
 
 - (void)mouseUp:(NSEvent *)event {
@@ -2413,7 +2500,10 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         // Support both move and copy - destination decides based on modifier keys
         return NSDragOperationMove | NSDragOperationCopy;
     }
-    return NSDragOperationCopy;
+    bool moveByDefault = simplaylist_config::getConfigBool(
+        simplaylist_config::kDragToFinderMove,
+        simplaylist_config::kDefaultDragToFinderMove);
+    return moveByDefault ? NSDragOperationEvery : NSDragOperationCopy;
 }
 
 - (void)draggingSession:(NSDraggingSession *)session
@@ -2421,6 +2511,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
               operation:(NSDragOperation)operation {
     _isDragging = NO;
     _dropTargetRow = -1;
+    _currentDragData = nil;
     // Suppress focus ring briefly to avoid flash on wrong item during rebuild
     _suppressFocusRing = YES;
     [self setNeedsDisplay:YES];
@@ -2438,13 +2529,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
     NSPasteboard *pb = [sender draggingPasteboard];
 
-    FB2K_console_formatter() << "[SimPlaylist] draggingEntered, types: "
-                             << ([pb.types containsObject:SimPlaylistPasteboardType] ? "SimPlaylist " : "")
-                             << ([pb.types containsObject:NSPasteboardTypeFileURL] ? "FileURL " : "")
-                             << ([pb.types containsObject:NSPasteboardTypeURL] ? "URL " : "")
-                             << ([pb.types containsObject:NSPasteboardTypeString] ? "String" : "");
-
-    if ([pb.types containsObject:SimPlaylistPasteboardType]) {
+    BOOL isInternalDrag = [[sender draggingSource] isKindOfClass:[SimPlaylistView class]]
+                          || [pb.types containsObject:SimPlaylistPasteboardType];
+    if (isInternalDrag) {
         // Option key = copy, otherwise move
         BOOL optionKeyHeld = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
         return optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
@@ -2528,11 +2615,15 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     [self setNeedsDisplay:YES];
 
     NSPasteboard *pb = [sender draggingPasteboard];
-    if ([pb.types containsObject:SimPlaylistPasteboardType]) {
+    BOOL isInternalDrag = [[sender draggingSource] isKindOfClass:[SimPlaylistView class]]
+                          || [pb.types containsObject:SimPlaylistPasteboardType];
+    if (isInternalDrag) {
         // Option key = copy, otherwise move
         BOOL optionKeyHeld = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
         return optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
-    } else if ([pb.types containsObject:NSPasteboardTypeFileURL]) {
+    }
+
+    if ([pb.types containsObject:NSPasteboardTypeFileURL]) {
         return NSDragOperationCopy;
     } else if ([pb.types containsObject:NSPasteboardTypeURL]) {
         // Web URLs (e.g., from Cloud Browser)
@@ -2563,66 +2654,74 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     FB2K_console_formatter() << "[SimPlaylist] performDragOperation called";
 
     // Internal drag (reorder or cross-playlist move)
-    if ([pb.types containsObject:SimPlaylistPasteboardType]) {
+    // Drag data is stored on the source view to avoid pasteboard type conflicts with Finder
+    SimPlaylistView *sourceView = nil;
+    if ([[sender draggingSource] isKindOfClass:[SimPlaylistView class]]) {
+        sourceView = (SimPlaylistView *)[sender draggingSource];
+    }
+
+    NSDictionary *dragData = sourceView.currentDragData;
+    if (!dragData && [pb.types containsObject:SimPlaylistPasteboardType]) {
+        // Fallback: read from pasteboard (for non-local file drags that use the old path)
         NSData *data = [pb dataForType:SimPlaylistPasteboardType];
         if (data) {
-            // Unarchive drag data (dictionary with sourcePlaylist, indices, and paths)
-            NSDictionary *dragData = [NSKeyedUnarchiver unarchivedObjectOfClasses:
-                                      [NSSet setWithObjects:[NSDictionary class], [NSArray class], [NSNumber class], [NSString class], nil]
-                                                                         fromData:data
-                                                                            error:nil];
-            if (dragData) {
-                NSNumber *sourcePlaylist = dragData[@"sourcePlaylist"];
-                NSArray<NSNumber *> *rowNumbers = dragData[@"indices"];
-                NSArray<NSString *> *paths = dragData[@"paths"];
+            dragData = [NSKeyedUnarchiver unarchivedObjectOfClasses:
+                        [NSSet setWithObjects:[NSDictionary class], [NSArray class], [NSNumber class], [NSString class], nil]
+                                                           fromData:data
+                                                              error:nil];
+        }
+    }
 
-                BOOL samePlaylist = (sourcePlaylist && [sourcePlaylist integerValue] == _sourcePlaylistIndex);
-                FB2K_console_formatter() << "[SimPlaylist] DROP: sourcePlaylist=" << [sourcePlaylist integerValue]
-                                         << ", currentPlaylist=" << _sourcePlaylistIndex
-                                         << ", samePlaylist=" << (samePlaylist ? "YES" : "NO")
-                                         << ", paths=" << (paths ? paths.count : 0)
-                                         << ", indices=" << (rowNumbers ? rowNumbers.count : 0);
+    if (dragData) {
+        NSNumber *sourcePlaylist = dragData[@"sourcePlaylist"];
+        NSArray<NSNumber *> *rowNumbers = dragData[@"indices"];
+        NSArray<NSString *> *paths = dragData[@"paths"];
 
-                if (samePlaylist) {
-                    // Same playlist - reorder or duplicate based on modifier key
-                    if (rowNumbers && rowNumbers.count > 0) {
-                        NSMutableIndexSet *sourceRows = [NSMutableIndexSet indexSet];
-                        for (NSNumber *num in rowNumbers) {
-                            [sourceRows addIndex:[num unsignedIntegerValue]];
-                        }
+        BOOL samePlaylist = (sourcePlaylist && [sourcePlaylist integerValue] == _sourcePlaylistIndex);
+        FB2K_console_formatter() << "[SimPlaylist] DROP: sourcePlaylist=" << [sourcePlaylist integerValue]
+                                 << ", currentPlaylist=" << _sourcePlaylistIndex
+                                 << ", samePlaylist=" << (samePlaylist ? "YES" : "NO")
+                                 << ", paths=" << (paths ? paths.count : 0)
+                                 << ", indices=" << (rowNumbers ? rowNumbers.count : 0);
 
-                        // Option key = copy (duplicate), otherwise move (reorder)
-                        BOOL optionKeyHeld = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
-                        NSDragOperation operation = optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
+        if (samePlaylist) {
+            // Same playlist - reorder or duplicate based on modifier key
+            if (rowNumbers && rowNumbers.count > 0) {
+                NSMutableIndexSet *sourceRows = [NSMutableIndexSet indexSet];
+                for (NSNumber *num in rowNumbers) {
+                    [sourceRows addIndex:[num unsignedIntegerValue]];
+                }
 
-                        if ([_delegate respondsToSelector:@selector(playlistView:didReorderRows:toRow:operation:)]) {
-                            [_delegate playlistView:self didReorderRows:sourceRows toRow:_dropTargetRow operation:operation];
-                        }
-                    }
-                } else {
-                    // Different playlist - use paths to move/copy items
-                    if (paths && paths.count > 0 && rowNumbers && rowNumbers.count > 0) {
-                        // Build source indices from row numbers
-                        NSMutableIndexSet *sourceIndices = [NSMutableIndexSet indexSet];
-                        for (NSNumber *num in rowNumbers) {
-                            [sourceIndices addIndex:[num unsignedIntegerValue]];
-                        }
+                // Option key = copy (duplicate), otherwise move (reorder)
+                BOOL optionKeyHeld = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
+                NSDragOperation operation = optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
 
-                        // Get operation from modifier keys (same check as draggingUpdated)
-                        BOOL optionKeyHeld = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
-                        NSDragOperation operation = optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
-                        FB2K_console_formatter() << "[SimPlaylist] Cross-playlist drop: optionKey=" << (optionKeyHeld ? "YES" : "NO")
-                                                 << ", operation=" << (int)operation
-                                                 << " (Move=" << (int)NSDragOperationMove << ", Copy=" << (int)NSDragOperationCopy << ")";
+                if ([_delegate respondsToSelector:@selector(playlistView:didReorderRows:toRow:operation:)]) {
+                    [_delegate playlistView:self didReorderRows:sourceRows toRow:_dropTargetRow operation:operation];
+                }
+            }
+        } else {
+            // Different playlist - use paths to move/copy items
+            if (paths && paths.count > 0 && rowNumbers && rowNumbers.count > 0) {
+                // Build source indices from row numbers
+                NSMutableIndexSet *sourceIndices = [NSMutableIndexSet indexSet];
+                for (NSNumber *num in rowNumbers) {
+                    [sourceIndices addIndex:[num unsignedIntegerValue]];
+                }
 
-                        if ([_delegate respondsToSelector:@selector(playlistView:didReceiveDroppedPaths:fromPlaylist:sourceIndices:atRow:operation:)]) {
-                            [_delegate playlistView:self didReceiveDroppedPaths:paths
-                                       fromPlaylist:[sourcePlaylist integerValue]
-                                      sourceIndices:sourceIndices
-                                              atRow:_dropTargetRow
-                                          operation:operation];
-                        }
-                    }
+                // Get operation from modifier keys (same check as draggingUpdated)
+                BOOL optionKeyHeld = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
+                NSDragOperation operation = optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
+                FB2K_console_formatter() << "[SimPlaylist] Cross-playlist drop: optionKey=" << (optionKeyHeld ? "YES" : "NO")
+                                         << ", operation=" << (int)operation
+                                         << " (Move=" << (int)NSDragOperationMove << ", Copy=" << (int)NSDragOperationCopy << ")";
+
+                if ([_delegate respondsToSelector:@selector(playlistView:didReceiveDroppedPaths:fromPlaylist:sourceIndices:atRow:operation:)]) {
+                    [_delegate playlistView:self didReceiveDroppedPaths:paths
+                               fromPlaylist:[sourcePlaylist integerValue]
+                              sourceIndices:sourceIndices
+                                      atRow:_dropTargetRow
+                                  operation:operation];
                 }
             }
         }

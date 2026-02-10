@@ -35,6 +35,8 @@
 @property (nonatomic, strong) NSPopUpButton *headerAccentPopup;
 @property (nonatomic, strong) NSPopUpButton *groupHeaderSpacingPopup;
 @property (nonatomic, strong) NSButton *glassBackgroundCheckbox;
+@property (nonatomic, strong) NSButton *debugRenderingCheckbox;
+@property (nonatomic, strong) NSButton *dragToFinderMoveCheckbox;
 @property (nonatomic, strong) NSArray<GroupPreset *> *presets;
 @property (nonatomic, assign) NSInteger currentPresetIndex;
 @end
@@ -43,7 +45,7 @@
 
 - (void)loadView {
     // Use flipped view so y=0 is at top
-    NSView *container = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 500, 520)];
+    NSView *container = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 500, 610)];
     self.view = container;
 
     CGFloat y = 20;  // Start from top
@@ -125,12 +127,12 @@
     CGFloat displayBoxY = y;
     CGFloat displayContentY = 22;
 
-    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 310)];
+    NSBox *displayBox = [[NSBox alloc] initWithFrame:NSMakeRect(leftMargin, displayBoxY, 460, 400)];
     displayBox.title = @"Display Settings";
     displayBox.titlePosition = NSAtTop;
     [container addSubview:displayBox];
 
-    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 260)];
+    NSView *displayContent = [[SimPlaylistFlippedView alloc] initWithFrame:NSMakeRect(0, 0, 440, 370)];
     displayBox.contentView = displayContent;
 
     // Header Display Style
@@ -242,8 +244,32 @@
                                                     action:@selector(glassBackgroundChanged:)];
     _glassBackgroundCheckbox.frame = NSMakeRect(boxMargin + labelWidth, displayContentY, 280, 20);
     [displayContent addSubview:_glassBackgroundCheckbox];
+    displayContentY += rowHeight;
 
-    y = displayBoxY + 350;
+    // Debug Rendering
+    _debugRenderingCheckbox = [NSButton checkboxWithTitle:@"Show debug rendering diagnostics"
+                                                   target:self
+                                                   action:@selector(debugRenderingChanged:)];
+    _debugRenderingCheckbox.frame = NSMakeRect(boxMargin + labelWidth, displayContentY, 280, 20);
+    [displayContent addSubview:_debugRenderingCheckbox];
+    displayContentY += rowHeight + 8;
+
+    // Drag to Finder: move by default
+    _dragToFinderMoveCheckbox = [NSButton checkboxWithTitle:@"Drag to Finder moves files (hold OPT to copy)"
+                                                     target:self
+                                                     action:@selector(dragToFinderMoveChanged:)];
+    _dragToFinderMoveCheckbox.frame = NSMakeRect(boxMargin + labelWidth, displayContentY, 300, 20);
+    [displayContent addSubview:_dragToFinderMoveCheckbox];
+    displayContentY += 18;
+
+    NSTextField *dragWarning = [NSTextField labelWithString:@"Warning: moves files from their original location when dragging out of foobar2000"];
+    dragWarning.frame = NSMakeRect(boxMargin + labelWidth, displayContentY, 300, 28);
+    dragWarning.font = [NSFont systemFontOfSize:10];
+    dragWarning.textColor = [NSColor secondaryLabelColor];
+    dragWarning.lineBreakMode = NSLineBreakByWordWrapping;
+    [displayContent addSubview:dragWarning];
+
+    y = displayBoxY + 430;
 
     // Help text
     NSTextField *helpText = [[NSTextField alloc] initWithFrame:NSMakeRect(leftMargin, y, 460, 60)];
@@ -343,6 +369,18 @@
         simplaylist_config::kGlassBackground,
         simplaylist_config::kDefaultGlassBackground);
     _glassBackgroundCheckbox.state = glassBackground ? NSControlStateValueOn : NSControlStateValueOff;
+
+    // Load debug rendering
+    bool debugRendering = simplaylist_config::getConfigBool(
+        simplaylist_config::kDebugRendering,
+        simplaylist_config::kDefaultDebugRendering);
+    _debugRenderingCheckbox.state = debugRendering ? NSControlStateValueOn : NSControlStateValueOff;
+
+    // Load drag to Finder move
+    bool dragToFinderMove = simplaylist_config::getConfigBool(
+        simplaylist_config::kDragToFinderMove,
+        simplaylist_config::kDefaultDragToFinderMove);
+    _dragToFinderMoveCheckbox.state = dragToFinderMove ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
 - (void)updateFieldsForPreset:(GroupPreset *)preset {
@@ -505,6 +543,20 @@
     // Needs full rebuild - container view type changes
     [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistSettingsChanged"
                                                         object:nil];
+}
+
+- (void)debugRenderingChanged:(id)sender {
+    bool enabled = (_debugRenderingCheckbox.state == NSControlStateValueOn);
+    simplaylist_config::setConfigBool(simplaylist_config::kDebugRendering, enabled);
+
+    // Only needs redraw, not full rebuild
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SimPlaylistRedrawNeeded"
+                                                        object:nil];
+}
+
+- (void)dragToFinderMoveChanged:(id)sender {
+    bool enabled = (_dragToFinderMoveCheckbox.state == NSControlStateValueOn);
+    simplaylist_config::setConfigBool(simplaylist_config::kDragToFinderMove, enabled);
 }
 
 @end

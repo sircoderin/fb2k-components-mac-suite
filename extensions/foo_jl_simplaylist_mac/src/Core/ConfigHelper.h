@@ -62,6 +62,12 @@ static const char* const kGlassBackground = "glass_background";
 // Group header spacing: 0 = normal (4px symmetrical), 1 = larger (7px symmetrical)
 static const char* const kGroupHeaderSpacing = "group_header_spacing";
 
+// Debug rendering: show diagnostic text on rendering anomalies
+static const char* const kDebugRendering = "debug_rendering";
+
+// Drag to Finder: move files by default (instead of copy)
+static const char* const kDragToFinderMove = "drag_to_finder_move";
+
 // Default values - row heights sized for 13pt font
 static const int64_t kDefaultRowHeight = 22;
 static const int64_t kDefaultHeaderHeight = 28;
@@ -80,6 +86,8 @@ static const int64_t kDefaultColumnHeaderSize = 1;  // 0=compact, 1=normal, 2=la
 static const int64_t kDefaultHeaderAccentColor = 0;  // 0=none, 1=tinted
 static const bool kDefaultGlassBackground = false;   // Opaque background by default
 static const int64_t kDefaultGroupHeaderSpacing = 1; // 0=compact, 1=normal, 2=larger
+static const bool kDefaultDebugRendering = false;     // Hide debug diagnostics by default
+static const bool kDefaultDragToFinderMove = false;   // Copy files by default when dragging to Finder
 
 // Helper functions
 inline std::string getFullKey(const char* key) {
