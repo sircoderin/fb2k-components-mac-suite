@@ -6,6 +6,7 @@ All notable changes to SimPlaylist will be documented in this file.
 
 ### Fixed
 - **Album art cache eviction**: Replaced `NSCache` (which silently evicts under memory pressure) with a manual LRU dictionary. Album art no longer blinks or disappears during fast scrolling.
+- **Stale subgroup caches on empty playlists**: Subgroup/padding caches are now cleared in all early-return paths of `rebuildFromPlaylist`, preventing stale data from a previous playlist.
 
 ## [1.3.4] - 2026-02-08
 

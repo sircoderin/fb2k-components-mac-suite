@@ -691,6 +691,14 @@ struct ReloadOperation {
         _playlistView.groupStarts = @[];
         _playlistView.groupHeaders = @[];
         _playlistView.groupArtKeys = @[];
+        _playlistView.groupPaddingRows = @[];
+        _playlistView.totalPaddingRowsCached = 0;
+        _playlistView.cumulativePaddingCache = @[];
+        _playlistView.subgroupStarts = @[];
+        _playlistView.subgroupHeaders = @[];
+        _playlistView.subgroupCountPerGroup = @[];
+        _playlistView.subgroupRowSet = [NSIndexSet indexSet];
+        _playlistView.subgroupRowToIndex = @{};
         _currentPlaylistIndex = -1;
         _playlistView.sourcePlaylistIndex = -1;  // For drag validation
         [_playlistView reloadData];
@@ -706,6 +714,14 @@ struct ReloadOperation {
         _playlistView.groupStarts = @[];
         _playlistView.groupHeaders = @[];
         _playlistView.groupArtKeys = @[];
+        _playlistView.groupPaddingRows = @[];
+        _playlistView.totalPaddingRowsCached = 0;
+        _playlistView.cumulativePaddingCache = @[];
+        _playlistView.subgroupStarts = @[];
+        _playlistView.subgroupHeaders = @[];
+        _playlistView.subgroupCountPerGroup = @[];
+        _playlistView.subgroupRowSet = [NSIndexSet indexSet];
+        _playlistView.subgroupRowToIndex = @{};
         [_playlistView reloadData];
         return;
     }
@@ -740,6 +756,11 @@ struct ReloadOperation {
         _playlistView.groupArtKeys = @[];
         _playlistView.groupPaddingRows = @[];
         [_playlistView rebuildPaddingCache];
+        _playlistView.subgroupStarts = @[];
+        _playlistView.subgroupHeaders = @[];
+        _playlistView.subgroupCountPerGroup = @[];
+        _playlistView.subgroupRowSet = [NSIndexSet indexSet];
+        _playlistView.subgroupRowToIndex = @{};
     }
 
     // Set frame size
