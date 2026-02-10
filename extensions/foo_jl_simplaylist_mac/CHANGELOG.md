@@ -2,7 +2,7 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
-## [Unreleased]
+## [1.4.0] - 2026-02-10
 
 ### Added
 - **Drag to Finder**: Drag tracks from SimPlaylist to Finder to copy files out. Default behavior is copy; a preference toggle enables move-by-default (hold OPT to copy).
