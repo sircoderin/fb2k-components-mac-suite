@@ -5,16 +5,17 @@
 
 #import "AlbumArtCache.h"
 
-// Maximum entries in key tracking sets (prevents unbounded memory growth)
-// Increased to handle larger libraries without eviction-related blinking
-static const NSUInteger kMaxKeySetSize = 50000;
+// Maximum entries in the no-image tracking set
+static const NSUInteger kMaxNoImageKeySetSize = 50000;
 
 @interface AlbumArtCache ()
-@property (nonatomic, strong) NSCache<NSString *, NSImage *> *imageCache;
+// Strong image storage — no surprise evictions unlike NSCache
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSImage *> *imageStore;
+@property (nonatomic, strong) NSMutableArray<NSString *> *imageKeyOrder;  // LRU order (oldest first)
+
 @property (nonatomic, strong) NSMutableSet<NSString *> *noImageKeys;  // Keys where we tried and found no art
-@property (nonatomic, strong) NSMutableSet<NSString *> *hasImageKeys;  // Keys that have album art
 @property (nonatomic, strong) NSMutableArray<NSString *> *noImageKeyOrder;   // LRU order for eviction
-@property (nonatomic, strong) NSMutableArray<NSString *> *hasImageKeyOrder;  // LRU order for eviction
+
 @property (nonatomic, strong) NSOperationQueue *loadQueue;
 @property (nonatomic, strong) NSMutableSet<NSString *> *pendingLoads;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray *> *pendingCompletions;
@@ -37,13 +38,12 @@ static NSImage *_placeholderImage = nil;
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _imageCache = [[NSCache alloc] init];
-        _imageCache.countLimit = 1000;  // Max 1000 images to reduce eviction during fast scroll
+        _imageStore = [NSMutableDictionary dictionary];
+        _imageKeyOrder = [NSMutableArray array];
+        _maxImageCount = 1000;
 
-        _noImageKeys = [NSMutableSet set];     // Track keys with no album art
-        _hasImageKeys = [NSMutableSet set];    // Track keys that have album art
-        _noImageKeyOrder = [NSMutableArray array];   // LRU eviction order
-        _hasImageKeyOrder = [NSMutableArray array];  // LRU eviction order
+        _noImageKeys = [NSMutableSet set];
+        _noImageKeyOrder = [NSMutableArray array];
 
         _loadQueue = [[NSOperationQueue alloc] init];
         _loadQueue.maxConcurrentOperationCount = 4;
@@ -52,7 +52,6 @@ static NSImage *_placeholderImage = nil;
         _pendingLoads = [NSMutableSet set];
         _pendingCompletions = [NSMutableDictionary dictionary];
         _pendingLock = [[NSLock alloc] init];
-        _maxCacheSize = 50 * 1024 * 1024;  // 50MB default
     }
     return self;
 }
@@ -83,7 +82,7 @@ static NSImage *_placeholderImage = nil;
 }
 
 - (nullable NSImage *)cachedImageForKey:(NSString *)key {
-    return [_imageCache objectForKey:key];
+    return _imageStore[key];
 }
 
 - (BOOL)isLoadingKey:(NSString *)key {
@@ -100,19 +99,38 @@ static NSImage *_placeholderImage = nil;
     return noImage;
 }
 
-- (BOOL)hasKnownImageForKey:(NSString *)key {
-    [_pendingLock lock];
-    BOOL hasImage = [_hasImageKeys containsObject:key];
-    [_pendingLock unlock];
-    return hasImage;
+// Insert image into store with LRU eviction when over maxImageCount.
+// Evicts oldest 10% in a batch to amortize the cost.
+// Must be called on main thread (imageStore/imageKeyOrder are main-thread-only).
+- (void)storeImage:(NSImage *)image forKey:(NSString *)key {
+    if (_imageStore[key]) {
+        // Already stored — just move to end of LRU order
+        [_imageKeyOrder removeObject:key];
+        [_imageKeyOrder addObject:key];
+        return;
+    }
+
+    // Evict oldest entries if at capacity
+    if (_imageKeyOrder.count >= _maxImageCount) {
+        NSUInteger evictCount = _maxImageCount / 10;
+        if (evictCount < 1) evictCount = 1;
+        NSArray *toEvict = [_imageKeyOrder subarrayWithRange:NSMakeRange(0, evictCount)];
+        for (NSString *evictKey in toEvict) {
+            [_imageStore removeObjectForKey:evictKey];
+        }
+        [_imageKeyOrder removeObjectsInRange:NSMakeRange(0, evictCount)];
+    }
+
+    _imageStore[key] = image;
+    [_imageKeyOrder addObject:key];
 }
 
 - (void)loadImageForKey:(NSString *)key
                  handle:(metadb_handle_ptr)handle
              completion:(void (^)(NSImage * _Nullable image))completion {
 
-    // Check cache first
-    NSImage *cached = [_imageCache objectForKey:key];
+    // Check image store first (strong references — no surprise eviction)
+    NSImage *cached = _imageStore[key];
     if (cached) {
         if (completion) {
             completion(cached);
@@ -252,26 +270,12 @@ static NSImage *_placeholderImage = nil;
             [strongSelf->_pendingCompletions removeObjectForKey:keyCopy];
 
             if (image) {
-                [strongSelf->_imageCache setObject:image forKey:keyCopy];
-                // Bounded LRU insertion - batch evict oldest 10% to amortize O(n) removal
-                if (![strongSelf->_hasImageKeys containsObject:keyCopy]) {
-                    if (strongSelf->_hasImageKeys.count >= kMaxKeySetSize) {
-                        NSUInteger evictCount = kMaxKeySetSize / 10;
-                        NSArray *toEvict = [strongSelf->_hasImageKeyOrder subarrayWithRange:NSMakeRange(0, evictCount)];
-                        for (NSString *key in toEvict) {
-                            [strongSelf->_hasImageKeys removeObject:key];
-                        }
-                        [strongSelf->_hasImageKeyOrder removeObjectsInRange:NSMakeRange(0, evictCount)];
-                    }
-                    [strongSelf->_hasImageKeys addObject:keyCopy];
-                    [strongSelf->_hasImageKeyOrder addObject:keyCopy];
-                }
+                [strongSelf storeImage:image forKey:keyCopy];
             } else {
                 // Mark this key as having no image to prevent repeated load attempts
-                // Bounded LRU insertion - batch evict oldest 10% to amortize O(n) removal
                 if (![strongSelf->_noImageKeys containsObject:keyCopy]) {
-                    if (strongSelf->_noImageKeys.count >= kMaxKeySetSize) {
-                        NSUInteger evictCount = kMaxKeySetSize / 10;
+                    if (strongSelf->_noImageKeys.count >= kMaxNoImageKeySetSize) {
+                        NSUInteger evictCount = kMaxNoImageKeySetSize / 10;
                         NSArray *toEvict = [strongSelf->_noImageKeyOrder subarrayWithRange:NSMakeRange(0, evictCount)];
                         for (NSString *key in toEvict) {
                             [strongSelf->_noImageKeys removeObject:key];
@@ -331,16 +335,15 @@ static NSImage *_placeholderImage = nil;
 }
 
 - (void)clearCache {
-    [_imageCache removeAllObjects];
+    [_imageStore removeAllObjects];
+    [_imageKeyOrder removeAllObjects];
 
     [_pendingLock lock];
     [_loadQueue cancelAllOperations];
     [_pendingLoads removeAllObjects];
     [_pendingCompletions removeAllObjects];
-    [_noImageKeys removeAllObjects];       // Also clear "no image" markers
-    [_noImageKeyOrder removeAllObjects];   // Clear LRU order
-    [_hasImageKeys removeAllObjects];      // Clear "has image" markers too
-    [_hasImageKeyOrder removeAllObjects];  // Clear LRU order
+    [_noImageKeys removeAllObjects];
+    [_noImageKeyOrder removeAllObjects];
     [_pendingLock unlock];
 }
 
