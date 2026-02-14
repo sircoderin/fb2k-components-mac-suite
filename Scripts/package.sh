@@ -16,6 +16,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Component name mapping (short name -> directory suffix and output name)
 # All components use jl_ prefix for namespace clarity
 typeset -A DIR_MAP=(
+    ["effects_dsp"]="jl_effects_dsp"
+    ["effects-dsp"]="jl_effects_dsp"
     ["simplaylist"]="jl_simplaylist"
     ["jl_simplaylist"]="jl_simplaylist"
     ["plorg"]="jl_plorg"
