@@ -14,6 +14,7 @@ DISCLAIMER: All of this is a WIP, actively tested on my foobar2000 instance, but
 | [Album Art (Extended)](#album-art-extended) | Multi-type album art viewer with selection support | 1.0.1 | [📖](docs/albumart.md) |
 | [Queue Manager](#queue-manager) | Visual playback queue management | 1.1.0 | [📖](docs/queuemanager.md) |
 | [Last.fm Scrobbler](#lastfm-scrobbler) | Last.fm integration and scrobbling | 1.2.0 | – |
+| [Effects DSP](#effects-dsp) | 11 audio effects (echo, reverb, pitch shift, etc.) | 1.0.0 | – |
 
 ---
 
@@ -128,6 +129,20 @@ Last.fm integration for scrobbling and now-playing updates. An absolute necesity
 
 ---
 
+### Effects DSP
+
+A collection of 11 real-time audio effects -- a macOS port of [foo_dsp_effect](https://github.com/mudlord/foo_dsp_effect) by mudlord. The original Windows component provides standard audio effects that were missing from foobar2000's default installation; this brings them to macOS.
+
+**Effects:**
+- Echo, Tremolo, IIR Filter (12 biquad types)
+- Reverb (Freeverb), Phaser, WahWah
+- Chorus, Vibrato
+- Pitch Shift, Tempo Shift, Rate Shift (SoundTouch)
+
+Each effect registers as a separate DSP in foobar2000's chain (Preferences > Playback > DSP Manager), with its own native config popup.
+
+---
+
 ## Downloads
 
 | Component | Download | Forum |
@@ -138,6 +153,7 @@ Last.fm integration for scrobbling and now-playing updates. An absolute necesity
 | Album Art (Extended) | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=albumart) | TBD |
 | Queue Manager | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=queuemanager) | TBD |
 | Last.fm Scrobbler | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=scrobble) | TBD |
+| Effects DSP | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=effects-dsp) | TBD |
 
 ## Installation
 

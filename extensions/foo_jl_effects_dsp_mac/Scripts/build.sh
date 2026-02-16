@@ -8,4 +8,4 @@ if [ -z "$PROJECT_FILE" ]; then
     echo "Error: No Xcode project found. Run generate_xcode_project.rb first."
     exit 1
 fi
-xcodebuild -project "$PROJECT_FILE" -configuration Release build
+xcodebuild -project "$PROJECT_FILE" -configuration Release build SYMROOT="$EXT_DIR/build"
