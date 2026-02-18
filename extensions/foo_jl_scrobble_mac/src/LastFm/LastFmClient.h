@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class ScrobbleTrack;
 @class TopAlbum;
+@class RecentTrack;
 
 /// Completion handler for authentication token request
 typedef void (^LastFmTokenCompletion)(NSString* _Nullable token, NSError* _Nullable error);
@@ -131,6 +132,19 @@ typedef void (^LastFmTrackInfoCompletion)(NSString* _Nullable albumName, NSURL* 
 - (void)fetchTrackInfo:(NSString*)artist
                  track:(NSString*)track
             completion:(LastFmTrackInfoCompletion)completion;
+
+#pragma mark - Recent Tracks
+
+/// Completion handler for recent tracks request
+typedef void (^LastFmRecentTracksCompletion)(NSArray<RecentTrack *>* _Nullable tracks, NSError* _Nullable error);
+
+/// Fetch recent tracks for a user
+/// @param username Last.fm username
+/// @param limit Number of tracks to fetch (max 200)
+/// @param completion Called with parsed RecentTrack objects
+- (void)fetchRecentTracks:(NSString*)username
+                    limit:(NSInteger)limit
+               completion:(LastFmRecentTracksCompletion)completion;
 
 #pragma mark - Artist Image Scraping
 

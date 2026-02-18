@@ -7,9 +7,13 @@
 
 #import "ScrobbleWidgetView.h"
 #import "../Core/TopAlbum.h"
+#import "../Core/RecentTrack.h"
 #import <QuartzCore/QuartzCore.h>
 
 static const CGFloat kArrowWidth = 32.0;
+static const CGFloat kArrowChevronSize = 16.0;
+static const CGFloat kTrackRowHeight = 44.0;
+static const CGFloat kTrackArtSize = 36.0;
 static const CGFloat kMinAlbumSize = 64.0;
 static const CGFloat kMaxAlbumSize = 150.0;
 static const CGFloat kAlbumSpacing = 6.0;
@@ -35,10 +39,26 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 // Reload button
 @property (nonatomic, assign) NSRect reloadButtonRect;
 @property (nonatomic, assign) BOOL isOverReloadButton;
+// View mode pill
+@property (nonatomic, assign) NSRect viewModePillRect;
+@property (nonatomic, assign) BOOL isOverViewModePill;
+// Track count pill (Tracks mode only)
+@property (nonatomic, assign) NSRect trackCountPillRect;
+@property (nonatomic, assign) BOOL isOverTrackCountPill;
+// Content area for arrow navigation
+@property (nonatomic, assign) NSRect contentAreaRect;
+@property (nonatomic, assign) BOOL isOverLeftArrow;
+@property (nonatomic, assign) BOOL isOverRightArrow;
+// Recent track row rects for hit testing
+@property (nonatomic, strong) NSMutableArray<NSValue *> *trackRowRects;
+@property (nonatomic, assign) NSInteger hoveredTrackIndex;
 // Animation state
 @property (nonatomic, assign) BOOL isAnimatingTransition;
 // Glass effect
 @property (nonatomic, strong, nullable) NSVisualEffectView *glassEffectView;
+// Scroll state
+@property (nonatomic, assign) CGFloat contentScrollOffset;   // Current scroll offset (0 = top)
+@property (nonatomic, assign) CGFloat contentTotalHeight;    // Total content height (for scroll bounds)
 @end
 
 @implementation ScrobbleWidgetView
@@ -56,7 +76,14 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         _periodTitle = [ScrobbleWidgetView titleForPeriod:_currentPeriod];
         _typeTitle = [ScrobbleWidgetView titleForType:_currentType];
         _hoveredAlbumIndex = -1;
+        _hoveredTrackIndex = -1;
         _albumRects = [NSMutableArray array];
+        _trackRowRects = [NSMutableArray array];
+        _viewMode = ScrobbleWidgetViewModeCharts;
+        _viewModeTitle = [ScrobbleWidgetView titleForViewMode:_viewMode];
+        _recentTrackCount = 10;
+        _contentScrollOffset = 0;
+        _contentTotalHeight = 0;
         self.wantsLayer = YES;
 
         // Use minimum priorities so the view doesn't resist being resized by the layout system
@@ -153,6 +180,14 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         case ScrobbleChartTypeArtists: return @"Artists";
         case ScrobbleChartTypeTracks:  return @"Tracks";
         default: return @"Albums";
+    }
+}
+
++ (NSString *)titleForViewMode:(ScrobbleWidgetViewMode)mode {
+    switch (mode) {
+        case ScrobbleWidgetViewModeCharts: return @"Charts";
+        case ScrobbleWidgetViewModeTracks: return @"Tracks";
+        default: return @"Charts";
     }
 }
 
@@ -284,9 +319,14 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 - (void)mouseExited:(NSEvent *)event {
     _isHovered = NO;
     _hoveredAlbumIndex = -1;
+    _hoveredTrackIndex = -1;
     _isOverProfileLink = NO;
     _isOverPeriodPill = NO;
     _isOverTypePill = NO;
+    _isOverViewModePill = NO;
+    _isOverTrackCountPill = NO;
+    _isOverLeftArrow = NO;
+    _isOverRightArrow = NO;
     [self animateArrowOpacity:0.0];
     [self setNeedsDisplay:YES];
 }
@@ -295,10 +335,15 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     NSPoint location = [self convertPoint:event.locationInWindow fromView:nil];
 
     NSInteger oldHoveredAlbum = _hoveredAlbumIndex;
+    NSInteger oldHoveredTrack = _hoveredTrackIndex;
     BOOL wasOverProfileLink = _isOverProfileLink;
     BOOL wasOverPeriod = _isOverPeriodPill;
     BOOL wasOverType = _isOverTypePill;
     BOOL wasOverReload = _isOverReloadButton;
+    BOOL wasOverViewMode = _isOverViewModePill;
+    BOOL wasOverTrackCount = _isOverTrackCountPill;
+    BOOL wasOverLeftArrow = _isOverLeftArrow;
+    BOOL wasOverRightArrow = _isOverRightArrow;
 
     // Check if over profile link button
     _isOverProfileLink = !NSIsEmptyRect(_profileLinkRect) && NSPointInRect(location, _profileLinkRect);
@@ -306,25 +351,60 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     // Check reload button
     _isOverReloadButton = !NSIsEmptyRect(_reloadButtonRect) && NSPointInRect(location, _reloadButtonRect);
 
-    // Check period pill
-    _isOverPeriodPill = !NSIsEmptyRect(_periodPillRect) && NSPointInRect(location, _periodPillRect);
+    // Check view mode pill
+    _isOverViewModePill = !NSIsEmptyRect(_viewModePillRect) && NSPointInRect(location, _viewModePillRect);
 
-    // Check type pill
-    _isOverTypePill = !NSIsEmptyRect(_typePillRect) && NSPointInRect(location, _typePillRect);
+    // Check period pill (Charts mode only)
+    _isOverPeriodPill = (_viewMode == ScrobbleWidgetViewModeCharts) &&
+        !NSIsEmptyRect(_periodPillRect) && NSPointInRect(location, _periodPillRect);
 
-    // Check which album is being hovered
+    // Check type pill (Charts mode only)
+    _isOverTypePill = (_viewMode == ScrobbleWidgetViewModeCharts) &&
+        !NSIsEmptyRect(_typePillRect) && NSPointInRect(location, _typePillRect);
+
+    // Check track count pill (Tracks mode only)
+    _isOverTrackCountPill = (_viewMode == ScrobbleWidgetViewModeTracks) &&
+        !NSIsEmptyRect(_trackCountPillRect) && NSPointInRect(location, _trackCountPillRect);
+
+    // Check content area arrow zones
+    if (!NSIsEmptyRect(_contentAreaRect) && NSPointInRect(location, _contentAreaRect)) {
+        _isOverLeftArrow = (location.x - _contentAreaRect.origin.x) < kArrowWidth;
+        _isOverRightArrow = (_contentAreaRect.origin.x + _contentAreaRect.size.width - location.x) < kArrowWidth;
+    } else {
+        _isOverLeftArrow = NO;
+        _isOverRightArrow = NO;
+    }
+
+    // Check which album is being hovered (Charts mode)
     _hoveredAlbumIndex = -1;
-    for (NSInteger i = 0; i < (NSInteger)_albumRects.count; i++) {
-        NSRect rect = [_albumRects[i] rectValue];
-        if (NSPointInRect(location, rect)) {
-            _hoveredAlbumIndex = i;
-            break;
+    if (_viewMode == ScrobbleWidgetViewModeCharts) {
+        for (NSInteger i = 0; i < (NSInteger)_albumRects.count; i++) {
+            NSRect rect = [_albumRects[i] rectValue];
+            if (NSPointInRect(location, rect)) {
+                _hoveredAlbumIndex = i;
+                break;
+            }
         }
     }
 
-    if (oldHoveredAlbum != _hoveredAlbumIndex || wasOverProfileLink != _isOverProfileLink ||
+    // Check which track row is being hovered (Tracks mode)
+    _hoveredTrackIndex = -1;
+    if (_viewMode == ScrobbleWidgetViewModeTracks) {
+        for (NSInteger i = 0; i < (NSInteger)_trackRowRects.count; i++) {
+            NSRect rect = [_trackRowRects[i] rectValue];
+            if (NSPointInRect(location, rect)) {
+                _hoveredTrackIndex = i;
+                break;
+            }
+        }
+    }
+
+    if (oldHoveredAlbum != _hoveredAlbumIndex || oldHoveredTrack != _hoveredTrackIndex ||
+        wasOverProfileLink != _isOverProfileLink ||
         wasOverPeriod != _isOverPeriodPill || wasOverType != _isOverTypePill ||
-        wasOverReload != _isOverReloadButton) {
+        wasOverReload != _isOverReloadButton ||
+        wasOverViewMode != _isOverViewModePill || wasOverTrackCount != _isOverTrackCountPill ||
+        wasOverLeftArrow != _isOverLeftArrow || wasOverRightArrow != _isOverRightArrow) {
         [self setNeedsDisplay:YES];
     }
 }
@@ -348,28 +428,97 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         return;
     }
 
-    // Check period pill - show dropdown menu
-    if (_isOverPeriodPill) {
+    // Check view mode pill
+    if (_isOverViewModePill) {
+        [self showViewModeMenu];
+        return;
+    }
+
+    // Check period pill (Charts mode)
+    if (_isOverPeriodPill && _viewMode == ScrobbleWidgetViewModeCharts) {
         [self showPeriodMenu];
         return;
     }
 
-    // Check type pill - show dropdown menu
-    if (_isOverTypePill) {
+    // Check type pill (Charts mode)
+    if (_isOverTypePill && _viewMode == ScrobbleWidgetViewModeCharts) {
         [self showTypeMenu];
         return;
     }
 
-    // Check if clicking on an album
-    for (NSInteger i = 0; i < (NSInteger)_albumRects.count; i++) {
-        NSRect rect = [_albumRects[i] rectValue];
-        if (NSPointInRect(location, rect)) {
-            if ([_delegate respondsToSelector:@selector(widgetView:didClickAlbumAtIndex:)]) {
-                [_delegate widgetView:self didClickAlbumAtIndex:i];
+    // Check track count pill (Tracks mode)
+    if (_isOverTrackCountPill && _viewMode == ScrobbleWidgetViewModeTracks) {
+        [self showTrackCountMenu];
+        return;
+    }
+
+    // Check content area arrows
+    if (_isOverLeftArrow) {
+        if ([_delegate respondsToSelector:@selector(widgetViewNavigatePreviousViewMode:)]) {
+            [_delegate widgetViewNavigatePreviousViewMode:self];
+        }
+        return;
+    }
+    if (_isOverRightArrow) {
+        if ([_delegate respondsToSelector:@selector(widgetViewNavigateNextViewMode:)]) {
+            [_delegate widgetViewNavigateNextViewMode:self];
+        }
+        return;
+    }
+
+    // Check if clicking on an album (Charts mode)
+    if (_viewMode == ScrobbleWidgetViewModeCharts) {
+        for (NSInteger i = 0; i < (NSInteger)_albumRects.count; i++) {
+            NSRect rect = [_albumRects[i] rectValue];
+            if (NSPointInRect(location, rect)) {
+                if ([_delegate respondsToSelector:@selector(widgetView:didClickAlbumAtIndex:)]) {
+                    [_delegate widgetView:self didClickAlbumAtIndex:i];
+                }
+                return;
             }
-            return;
         }
     }
+
+    // Check if clicking on a track row (Tracks mode)
+    if (_viewMode == ScrobbleWidgetViewModeTracks) {
+        for (NSInteger i = 0; i < (NSInteger)_trackRowRects.count; i++) {
+            NSRect rect = [_trackRowRects[i] rectValue];
+            if (NSPointInRect(location, rect)) {
+                if ([_delegate respondsToSelector:@selector(widgetView:didClickRecentTrackAtIndex:)]) {
+                    [_delegate widgetView:self didClickRecentTrackAtIndex:i];
+                }
+                return;
+            }
+        }
+    }
+}
+
+- (void)scrollWheel:(NSEvent *)event {
+    if (_state != ScrobbleWidgetStateReady) return;
+    if (NSIsEmptyRect(_contentAreaRect)) return;
+
+    // Only scroll if mouse is in content area
+    NSPoint location = [self convertPoint:event.locationInWindow fromView:nil];
+    if (!NSPointInRect(location, _contentAreaRect)) {
+        [super scrollWheel:event];
+        return;
+    }
+
+    CGFloat maxOffset = MAX(0, _contentTotalHeight - _contentAreaRect.size.height);
+    if (maxOffset <= 0) return;  // Content fits, no scrolling needed
+
+    // deltaY is positive when scrolling up (content moves down), negative when scrolling down
+    CGFloat delta = event.scrollingDeltaY;
+    if (event.hasPreciseScrollingDeltas) {
+        _contentScrollOffset -= delta;
+    } else {
+        _contentScrollOffset -= delta * 20.0;  // Line-based scrolling
+    }
+
+    // Clamp
+    _contentScrollOffset = MAX(0, MIN(_contentScrollOffset, maxOffset));
+
+    [self setNeedsDisplay:YES];
 }
 
 - (void)showPeriodMenu {
@@ -449,6 +598,57 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 - (void)selectTypeTracks:(id)sender {
     if ([_delegate respondsToSelector:@selector(widgetView:didSelectType:)]) {
         [_delegate widgetView:self didSelectType:ScrobbleChartTypeTracks];
+    }
+}
+
+- (void)showViewModeMenu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"View"];
+
+    NSMenuItem *chartsItem = [[NSMenuItem alloc] initWithTitle:@"Charts" action:@selector(selectViewModeCharts:) keyEquivalent:@""];
+    chartsItem.target = self;
+    chartsItem.state = (_viewMode == ScrobbleWidgetViewModeCharts) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:chartsItem];
+
+    NSMenuItem *tracksItem = [[NSMenuItem alloc] initWithTitle:@"Tracks" action:@selector(selectViewModeTracks:) keyEquivalent:@""];
+    tracksItem.target = self;
+    tracksItem.state = (_viewMode == ScrobbleWidgetViewModeTracks) ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:tracksItem];
+
+    NSPoint menuPoint = NSMakePoint(_viewModePillRect.origin.x, _viewModePillRect.origin.y + _viewModePillRect.size.height);
+    [menu popUpMenuPositioningItem:nil atLocation:menuPoint inView:self];
+}
+
+- (void)selectViewModeCharts:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectViewMode:)]) {
+        [_delegate widgetView:self didSelectViewMode:ScrobbleWidgetViewModeCharts];
+    }
+}
+
+- (void)selectViewModeTracks:(id)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectViewMode:)]) {
+        [_delegate widgetView:self didSelectViewMode:ScrobbleWidgetViewModeTracks];
+    }
+}
+
+- (void)showTrackCountMenu {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Show"];
+
+    for (NSNumber *count in @[@10, @30, @50]) {
+        NSString *title = [NSString stringWithFormat:@"%@", count];
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:@selector(selectTrackCount:) keyEquivalent:@""];
+        item.target = self;
+        item.tag = count.integerValue;
+        item.state = (_recentTrackCount == count.integerValue) ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+
+    NSPoint menuPoint = NSMakePoint(_trackCountPillRect.origin.x, _trackCountPillRect.origin.y + _trackCountPillRect.size.height);
+    [menu popUpMenuPositioningItem:nil atLocation:menuPoint inView:self];
+}
+
+- (void)selectTrackCount:(NSMenuItem *)sender {
+    if ([_delegate respondsToSelector:@selector(widgetView:didSelectTrackCount:)]) {
+        [_delegate widgetView:self didSelectTrackCount:sender.tag];
     }
 }
 
@@ -595,8 +795,28 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     CGFloat contentEndY = footerY - kPadding;
     CGFloat availableHeight = contentEndY - contentStartY;
 
-    if (_displayStyle == ScrobbleDisplayStylePlayback2025) {
-        // Bubble layout - centered vertically in available space
+    // Store content area for arrow hit testing
+    _contentAreaRect = NSMakeRect(kPadding, contentStartY, contentWidth, availableHeight);
+
+    // Clamp scroll offset before drawing (content may have changed)
+    CGFloat maxOffset = MAX(0, _contentTotalHeight - availableHeight);
+    if (_contentScrollOffset > maxOffset) _contentScrollOffset = maxOffset;
+    if (_contentScrollOffset < 0) _contentScrollOffset = 0;
+
+    // Clip to content area so scrolled content doesn't overflow into header/footer
+    [NSGraphicsContext saveGraphicsState];
+    NSBezierPath *clipPath = [NSBezierPath bezierPathWithRect:_contentAreaRect];
+    [clipPath addClip];
+
+    // Apply scroll offset: shift drawing origin upward
+    CGFloat scrolledStartY = contentStartY - _contentScrollOffset;
+
+    if (_viewMode == ScrobbleWidgetViewModeTracks) {
+        // Recent tracks list
+        [self drawRecentTracksListAtY:scrolledStartY width:contentWidth];
+    } else if (_displayStyle == ScrobbleDisplayStylePlayback2025) {
+        // Bubble layout - no scrolling (fits in visible area)
+        _contentTotalHeight = 0;
         CGFloat bubbleSize = MIN(contentWidth, availableHeight);
         CGFloat bubbleStartY = contentStartY + (availableHeight - bubbleSize) / 2;
         [self drawBubbleLayoutAtY:bubbleStartY width:contentWidth availableHeight:bubbleSize];
@@ -611,7 +831,14 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         }
 
         // Album grid (top-aligned)
-        [self drawAlbumGridAtY:contentStartY width:contentWidth];
+        [self drawAlbumGridAtY:scrolledStartY width:contentWidth];
+    }
+
+    [NSGraphicsContext restoreGraphicsState];
+
+    // Navigation arrows (drawn over content area on hover, outside clip)
+    if (_isHovered && _arrowOpacity > 0.01) {
+        [self drawNavigationArrowsInRect:_contentAreaRect];
     }
 
     // Status footer (sticky at bottom)
@@ -673,51 +900,87 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
         NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [NSColor labelColor]
     };
-    NSString *periodText = _periodTitle ?: @"Weekly";
-    NSString *typeText = _typeTitle ?: @"Albums";
-    NSSize periodSize = [periodText sizeWithAttributes:titleAttrs];
-    NSSize typeSize = [typeText sizeWithAttributes:titleAttrs];
+    NSString *viewModeText = _viewModeTitle ?: @"Charts";
+    NSSize viewModeSize = [viewModeText sizeWithAttributes:titleAttrs];
 
     CGFloat chevronWidth = 8.0, pillPadH = 8.0;
     CGFloat pillGap = 4.0;
     CGFloat pillHeight = 20.0;
     CGFloat centerY = y + rowHeight / 2;
 
-    // Period pill: [Weekly v]
-    CGFloat periodPillWidth = pillPadH + periodSize.width + 4 + chevronWidth + pillPadH;
-    CGFloat typePillWidth = pillPadH + typeSize.width + 4 + chevronWidth + pillPadH;
-    CGFloat totalWidth = periodPillWidth + pillGap + typePillWidth;
-    CGFloat startX = navAreaCenterX - totalWidth / 2;
+    // Calculate pill widths - view mode pill is always visible
+    CGFloat viewModePillWidth = pillPadH + viewModeSize.width + 4 + chevronWidth + pillPadH;
+    CGFloat totalWidth = viewModePillWidth;
 
-    // Draw period pill
-    NSRect periodPill = NSMakeRect(startX, centerY - pillHeight / 2, periodPillWidth, pillHeight);
-    _periodPillRect = periodPill;
-    NSColor *periodBg = _isOverPeriodPill ? [NSColor colorWithWhite:0.5 alpha:0.2] : [NSColor colorWithWhite:0.5 alpha:0.12];
-    [periodBg setFill];
-    [[NSBezierPath bezierPathWithRoundedRect:periodPill xRadius:pillHeight/2 yRadius:pillHeight/2] fill];
+    // Clear conditional pill rects
+    _periodPillRect = NSZeroRect;
+    _typePillRect = NSZeroRect;
+    _trackCountPillRect = NSZeroRect;
 
-    // Period text + chevron
-    CGFloat periodTextX = startX + pillPadH;
-    CGFloat textY = centerY - periodSize.height / 2;
-    [periodText drawAtPoint:NSMakePoint(periodTextX, textY) withAttributes:titleAttrs];
-    [self drawDropdownChevronAtX:periodTextX + periodSize.width + 4 centerY:centerY
-                        hovered:_isOverPeriodPill];
+    if (_viewMode == ScrobbleWidgetViewModeCharts) {
+        // Charts mode: [Charts v] [Weekly v] [Albums v]
+        NSString *periodText = _periodTitle ?: @"Weekly";
+        NSString *typeText = _typeTitle ?: @"Albums";
+        NSSize periodSize = [periodText sizeWithAttributes:titleAttrs];
+        NSSize typeSize = [typeText sizeWithAttributes:titleAttrs];
+        CGFloat periodPillWidth = pillPadH + periodSize.width + 4 + chevronWidth + pillPadH;
+        CGFloat typePillWidth = pillPadH + typeSize.width + 4 + chevronWidth + pillPadH;
+        totalWidth += pillGap + periodPillWidth + pillGap + typePillWidth;
+        CGFloat startX = navAreaCenterX - totalWidth / 2;
 
-    // Draw type pill
-    CGFloat typeStartX = startX + periodPillWidth + pillGap;
-    NSRect typePill = NSMakeRect(typeStartX, centerY - pillHeight / 2, typePillWidth, pillHeight);
-    _typePillRect = typePill;
-    NSColor *typeBg = _isOverTypePill ? [NSColor colorWithWhite:0.5 alpha:0.2] : [NSColor colorWithWhite:0.5 alpha:0.12];
-    [typeBg setFill];
-    [[NSBezierPath bezierPathWithRoundedRect:typePill xRadius:pillHeight/2 yRadius:pillHeight/2] fill];
+        // Draw view mode pill
+        [self drawPill:viewModeText atX:startX centerY:centerY width:viewModePillWidth height:pillHeight
+                 attrs:titleAttrs chevronWidth:chevronWidth padH:pillPadH hovered:_isOverViewModePill
+              storeRect:&_viewModePillRect];
 
-    // Type text + chevron
-    CGFloat typeTextX = typeStartX + pillPadH;
-    [typeText drawAtPoint:NSMakePoint(typeTextX, textY) withAttributes:titleAttrs];
-    [self drawDropdownChevronAtX:typeTextX + typeSize.width + 4 centerY:centerY
-                        hovered:_isOverTypePill];
+        // Draw period pill
+        CGFloat periodStartX = startX + viewModePillWidth + pillGap;
+        [self drawPill:periodText atX:periodStartX centerY:centerY width:periodPillWidth height:pillHeight
+                 attrs:titleAttrs chevronWidth:chevronWidth padH:pillPadH hovered:_isOverPeriodPill
+              storeRect:&_periodPillRect];
+
+        // Draw type pill
+        CGFloat typeStartX = periodStartX + periodPillWidth + pillGap;
+        [self drawPill:typeText atX:typeStartX centerY:centerY width:typePillWidth height:pillHeight
+                 attrs:titleAttrs chevronWidth:chevronWidth padH:pillPadH hovered:_isOverTypePill
+              storeRect:&_typePillRect];
+    } else {
+        // Tracks mode: [Tracks v] [Show: 10 v]
+        NSString *countText = [NSString stringWithFormat:@"Show: %ld", (long)_recentTrackCount];
+        NSSize countSize = [countText sizeWithAttributes:titleAttrs];
+        CGFloat countPillWidth = pillPadH + countSize.width + 4 + chevronWidth + pillPadH;
+        totalWidth += pillGap + countPillWidth;
+        CGFloat startX = navAreaCenterX - totalWidth / 2;
+
+        // Draw view mode pill
+        [self drawPill:viewModeText atX:startX centerY:centerY width:viewModePillWidth height:pillHeight
+                 attrs:titleAttrs chevronWidth:chevronWidth padH:pillPadH hovered:_isOverViewModePill
+              storeRect:&_viewModePillRect];
+
+        // Draw track count pill
+        CGFloat countStartX = startX + viewModePillWidth + pillGap;
+        [self drawPill:countText atX:countStartX centerY:centerY width:countPillWidth height:pillHeight
+                 attrs:titleAttrs chevronWidth:chevronWidth padH:pillPadH hovered:_isOverTrackCountPill
+              storeRect:&_trackCountPillRect];
+    }
 
     return y + rowHeight + spacing;
+}
+
+- (void)drawPill:(NSString *)text atX:(CGFloat)x centerY:(CGFloat)cy width:(CGFloat)w height:(CGFloat)h
+           attrs:(NSDictionary *)attrs chevronWidth:(CGFloat)chevW padH:(CGFloat)padH
+         hovered:(BOOL)hovered storeRect:(NSRect *)outRect {
+    NSRect pill = NSMakeRect(x, cy - h / 2, w, h);
+    if (outRect) *outRect = pill;
+    NSColor *bg = hovered ? [NSColor colorWithWhite:0.5 alpha:0.2] : [NSColor colorWithWhite:0.5 alpha:0.12];
+    [bg setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:h/2 yRadius:h/2] fill];
+
+    NSSize textSize = [text sizeWithAttributes:attrs];
+    CGFloat textX = x + padH;
+    CGFloat textY = cy - textSize.height / 2;
+    [text drawAtPoint:NSMakePoint(textX, textY) withAttributes:attrs];
+    [self drawDropdownChevronAtX:textX + textSize.width + 4 centerY:cy hovered:hovered];
 }
 
 - (void)drawDropdownChevronAtX:(CGFloat)x centerY:(CGFloat)centerY hovered:(BOOL)hovered {
@@ -919,6 +1182,7 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     [_albumRects removeAllObjects];
 
     if (_topAlbums.count == 0) {
+        _contentTotalHeight = 0;
         return y;
     }
 
@@ -928,6 +1192,10 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
     // Calculate how many albums fit per row
     NSInteger albumsPerRow = (NSInteger)((width + spacing) / (albumSize + spacing));
     if (albumsPerRow < 1) albumsPerRow = 1;
+
+    // Calculate total grid height for scrolling
+    NSInteger totalRows = (_topAlbums.count + albumsPerRow - 1) / albumsPerRow;
+    _contentTotalHeight = totalRows * albumSize + (totalRows - 1) * spacing;
 
     // Center the grid
     CGFloat totalGridWidth = albumsPerRow * albumSize + (albumsPerRow - 1) * spacing;
@@ -1113,6 +1381,194 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 }
 
 #pragma mark - Album Tooltip
+
+#pragma mark - Navigation Arrows
+
+- (void)drawNavigationArrowsInRect:(NSRect)rect {
+    CGFloat alpha = _arrowOpacity * 0.7;
+
+    // Left arrow
+    NSRect leftArrowRect = NSMakeRect(rect.origin.x, rect.origin.y, kArrowWidth, rect.size.height);
+    [self drawArrowInRect:leftArrowRect direction:-1 hovered:_isOverLeftArrow alpha:alpha];
+
+    // Right arrow
+    NSRect rightArrowRect = NSMakeRect(rect.origin.x + rect.size.width - kArrowWidth,
+                                        rect.origin.y, kArrowWidth, rect.size.height);
+    [self drawArrowInRect:rightArrowRect direction:1 hovered:_isOverRightArrow alpha:alpha];
+}
+
+- (void)drawArrowInRect:(NSRect)rect direction:(int)direction hovered:(BOOL)hovered alpha:(CGFloat)alpha {
+    // Semi-transparent gradient background
+    CGFloat bgAlpha = alpha * (hovered ? 0.6 : 0.4);
+    NSColor *bgColor = [[NSColor blackColor] colorWithAlphaComponent:bgAlpha];
+    NSColor *clearColor = [[NSColor blackColor] colorWithAlphaComponent:0];
+    NSGradient *gradient;
+    if (direction < 0) {
+        gradient = [[NSGradient alloc] initWithStartingColor:bgColor endingColor:clearColor];
+    } else {
+        gradient = [[NSGradient alloc] initWithStartingColor:clearColor endingColor:bgColor];
+    }
+    [gradient drawInRect:rect angle:0];
+
+    // Chevron
+    CGFloat centerX = rect.origin.x + rect.size.width / 2;
+    CGFloat centerY = rect.origin.y + rect.size.height / 2;
+    CGFloat size = kArrowChevronSize;
+
+    NSBezierPath *arrow = [NSBezierPath bezierPath];
+    arrow.lineWidth = 2.5;
+    arrow.lineCapStyle = NSLineCapStyleRound;
+    arrow.lineJoinStyle = NSLineJoinStyleRound;
+
+    if (direction < 0) {
+        [arrow moveToPoint:NSMakePoint(centerX + size/3, centerY - size/2)];
+        [arrow lineToPoint:NSMakePoint(centerX - size/3, centerY)];
+        [arrow lineToPoint:NSMakePoint(centerX + size/3, centerY + size/2)];
+    } else {
+        [arrow moveToPoint:NSMakePoint(centerX - size/3, centerY - size/2)];
+        [arrow lineToPoint:NSMakePoint(centerX + size/3, centerY)];
+        [arrow lineToPoint:NSMakePoint(centerX - size/3, centerY + size/2)];
+    }
+
+    [[[NSColor whiteColor] colorWithAlphaComponent:alpha * (hovered ? 1.0 : 0.8)] setStroke];
+    [arrow stroke];
+}
+
+#pragma mark - Recent Tracks Drawing
+
+- (void)drawRecentTracksListAtY:(CGFloat)startY width:(CGFloat)width {
+    [_trackRowRects removeAllObjects];
+
+    // Calculate total content height for scrolling
+    _contentTotalHeight = _recentTracks.count * kTrackRowHeight;
+
+    if (!_recentTracks || _recentTracks.count == 0) {
+        _contentTotalHeight = 0;
+        NSDictionary *attrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:12],
+            NSForegroundColorAttributeName: [NSColor secondaryLabelColor]
+        };
+        NSString *text = @"No recent tracks";
+        NSSize textSize = [text sizeWithAttributes:attrs];
+        CGFloat textX = kPadding + (width - textSize.width) / 2;
+        CGFloat textY = startY + _contentAreaRect.size.height / 2 - textSize.height / 2;
+        [text drawAtPoint:NSMakePoint(textX, textY) withAttributes:attrs];
+        return;
+    }
+
+    NSDictionary *trackNameAttrs = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: [NSColor labelColor]
+    };
+    NSDictionary *artistAttrs = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:11],
+        NSForegroundColorAttributeName: [NSColor secondaryLabelColor]
+    };
+    NSDictionary *timeAttrs = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:10],
+        NSForegroundColorAttributeName: [NSColor tertiaryLabelColor]
+    };
+    NSDictionary *nowPlayingAttrs = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: [NSColor controlAccentColor]
+    };
+
+    CGFloat rowY = startY;
+    CGFloat artPad = 4.0;
+    CGFloat textGap = 8.0;
+
+    // Pre-compute truncation style (reused for all rows)
+    NSMutableParagraphStyle *truncStyle = [[NSMutableParagraphStyle alloc] init];
+    truncStyle.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSMutableDictionary *trackAttrsWithTrunc = [trackNameAttrs mutableCopy];
+    trackAttrsWithTrunc[NSParagraphStyleAttributeName] = truncStyle;
+    NSMutableDictionary *artistAttrsWithTrunc = [artistAttrs mutableCopy];
+    artistAttrsWithTrunc[NSParagraphStyleAttributeName] = truncStyle;
+
+    for (NSInteger i = 0; i < (NSInteger)_recentTracks.count; i++) {
+        RecentTrack *track = _recentTracks[i];
+        NSRect rowRect = NSMakeRect(kPadding, rowY, width, kTrackRowHeight);
+
+        // Store rect for hit testing (even if off-screen, index corresponds to track index)
+        [_trackRowRects addObject:[NSValue valueWithRect:rowRect]];
+
+        // Skip drawing rows that are completely outside the visible clip rect
+        if (rowY + kTrackRowHeight < _contentAreaRect.origin.y ||
+            rowY > _contentAreaRect.origin.y + _contentAreaRect.size.height) {
+            rowY += kTrackRowHeight;
+            continue;
+        }
+
+        BOOL isHoveredRow = (_hoveredTrackIndex == i);
+
+        // Hover background
+        if (isHoveredRow) {
+            [[NSColor colorWithWhite:0.5 alpha:0.08] setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:rowRect xRadius:4 yRadius:4] fill];
+        }
+
+        // Now-playing accent left border
+        if (track.isNowPlaying) {
+            NSRect accentBar = NSMakeRect(kPadding, rowY + artPad, 2, kTrackRowHeight - artPad * 2);
+            [[NSColor controlAccentColor] setFill];
+            [NSBezierPath fillRect:accentBar];
+        }
+
+        // Album art thumbnail
+        CGFloat artX = kPadding + (track.isNowPlaying ? 6 : 0) + artPad;
+        CGFloat artY = rowY + (kTrackRowHeight - kTrackArtSize) / 2;
+        NSRect artRect = NSMakeRect(artX, artY, kTrackArtSize, kTrackArtSize);
+
+        NSImage *artImage = track.imageURL ? _albumImages[track.imageURL] : nil;
+        if (artImage) {
+            NSBezierPath *artClip = [NSBezierPath bezierPathWithRoundedRect:artRect xRadius:4 yRadius:4];
+            [NSGraphicsContext saveGraphicsState];
+            [artClip addClip];
+            [artImage drawInRect:artRect fromRect:NSZeroRect
+                       operation:NSCompositingOperationSourceOver fraction:1.0];
+            [NSGraphicsContext restoreGraphicsState];
+        } else {
+            [[NSColor tertiaryLabelColor] setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:artRect xRadius:4 yRadius:4] fill];
+        }
+
+        // Text area
+        CGFloat textX = artX + kTrackArtSize + textGap;
+        CGFloat textWidth = width - (textX - kPadding);
+
+        // Time / Now Playing badge (right-aligned)
+        NSString *timeText = [track relativeTimeString];
+        NSDictionary *timeDisplayAttrs = track.isNowPlaying ? nowPlayingAttrs : timeAttrs;
+        NSSize timeSize = [timeText sizeWithAttributes:timeDisplayAttrs];
+        CGFloat timeX = kPadding + width - timeSize.width;
+        CGFloat availTextWidth = textWidth - timeSize.width - 8;
+
+        // Track name (first line)
+        CGFloat nameY = rowY + (kTrackRowHeight / 2) - 14;
+        NSRect nameRect = NSMakeRect(textX, nameY, availTextWidth, 16);
+        [track.name drawInRect:nameRect withAttributes:trackAttrsWithTrunc];
+
+        // Artist name (second line)
+        CGFloat artistY = nameY + 15;
+        NSRect artistRect = NSMakeRect(textX, artistY, availTextWidth, 14);
+        [track.artist drawInRect:artistRect withAttributes:artistAttrsWithTrunc];
+
+        // Time text (right-aligned, vertically centered)
+        CGFloat timeY = rowY + (kTrackRowHeight - timeSize.height) / 2;
+        [timeText drawAtPoint:NSMakePoint(timeX, timeY) withAttributes:timeDisplayAttrs];
+
+        // Separator line (except last row)
+        rowY += kTrackRowHeight;
+        if (i < (NSInteger)_recentTracks.count - 1) {
+            [[NSColor separatorColor] setStroke];
+            NSBezierPath *sep = [NSBezierPath bezierPath];
+            [sep moveToPoint:NSMakePoint(textX, rowY)];
+            [sep lineToPoint:NSMakePoint(kPadding + width, rowY)];
+            sep.lineWidth = 0.5;
+            [sep stroke];
+        }
+    }
+}
 
 - (void)drawAlbumTooltipForIndex:(NSInteger)index {
     if (index < 0 || index >= (NSInteger)_topAlbums.count || index >= (NSInteger)_albumRects.count) {
@@ -1337,6 +1793,39 @@ static const NSTimeInterval kArrowFadeDuration = 0.15;
 
 - (void)refreshDisplay {
     [self setNeedsDisplay:YES];
+}
+
+#pragma mark - Scroll Reset
+
+- (void)setViewMode:(ScrobbleWidgetViewMode)viewMode {
+    if (_viewMode != viewMode) {
+        _viewMode = viewMode;
+        _contentScrollOffset = 0;
+    }
+}
+
+- (void)setCurrentPeriod:(ScrobbleChartPeriod)currentPeriod {
+    if (_currentPeriod != currentPeriod) {
+        _currentPeriod = currentPeriod;
+        _contentScrollOffset = 0;
+    }
+}
+
+- (void)setCurrentType:(ScrobbleChartType)currentType {
+    if (_currentType != currentType) {
+        _currentType = currentType;
+        _contentScrollOffset = 0;
+    }
+}
+
+- (void)setTopAlbums:(NSArray<TopAlbum *> *)topAlbums {
+    _topAlbums = [topAlbums copy];
+    _contentScrollOffset = 0;
+}
+
+- (void)setRecentTracks:(NSArray<RecentTrack *> *)recentTracks {
+    _recentTracks = [recentTracks copy];
+    _contentScrollOffset = 0;
 }
 
 @end

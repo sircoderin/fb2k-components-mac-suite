@@ -296,6 +296,12 @@ static const double kBackoffMultiplier = 2.0;
         return;
     }
 
+    // Post notification immediately for local UI update (before async API call)
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:ScrobbleServiceNowPlayingDidChangeNotification
+                      object:self
+                    userInfo:@{@"track": track}];
+
     FB2K_console_formatter() << "[Scrobble] Sending Now Playing to API: "
         << track.artist.UTF8String << " - " << track.title.UTF8String;
 
@@ -311,6 +317,13 @@ static const double kBackoffMultiplier = 2.0;
             }
         }
     }];
+}
+
+- (void)clearNowPlaying {
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:ScrobbleServiceNowPlayingDidChangeNotification
+                      object:self
+                    userInfo:nil];
 }
 
 @end

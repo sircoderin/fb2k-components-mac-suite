@@ -110,6 +110,11 @@ public:
                         finalizeTrackLocked();
                     }
                     m_currentTrack = nil;
+
+                    // Clear Now Playing indicator in widget
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [[ScrobbleService shared] clearNowPlaying];
+                    });
                 }
             } catch (...) {
                 FB2K_console_formatter() << "[Scrobble] Exception in on_playback_stop";

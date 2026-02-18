@@ -171,7 +171,9 @@ PBXPROJ
       'text'
     end
 
-    pbxproj_content += "\t\t#{file_ref_uuids[file]} /* #{file} */ = {isa = PBXFileReference; lastKnownFileType = #{file_type}; path = #{file}; sourceTree = \"<group>\"; };\n"
+    # Quote path if it contains special characters (e.g., + in LastFmClient+Private.h)
+    path_value = file =~ /[^A-Za-z0-9_.]/ ? "\"#{file}\"" : file
+    pbxproj_content += "\t\t#{file_ref_uuids[file]} /* #{file} */ = {isa = PBXFileReference; lastKnownFileType = #{file_type}; path = #{path_value}; sourceTree = \"<group>\"; };\n"
   end
 end
 

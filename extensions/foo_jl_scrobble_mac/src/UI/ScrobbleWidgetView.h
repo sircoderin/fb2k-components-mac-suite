@@ -12,6 +12,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @class TopAlbum;
+@class RecentTrack;
 @class ScrobbleWidgetView;
 
 /// View state for the widget
@@ -45,6 +46,13 @@ typedef NS_ENUM(NSInteger, ScrobbleDisplayStyle) {
     ScrobbleDisplayStylePlayback2025     // Bubble layout with circular images
 };
 
+/// Widget view mode (top-level content switch)
+typedef NS_ENUM(NSInteger, ScrobbleWidgetViewMode) {
+    ScrobbleWidgetViewModeCharts = 0,   // Top charts (albums/artists/tracks by period)
+    ScrobbleWidgetViewModeTracks,       // Recent scrobbled tracks list
+    ScrobbleWidgetViewModeCount         // Sentinel
+};
+
 // Legacy aliases for compatibility
 typedef ScrobbleChartPeriod ScrobbleChartPage;
 #define ScrobbleChartPageWeekly ScrobbleChartPeriodWeekly
@@ -69,6 +77,15 @@ typedef ScrobbleChartPeriod ScrobbleChartPage;
 - (void)widgetView:(ScrobbleWidgetView *)view didSelectType:(ScrobbleChartType)type;
 // Album click
 - (void)widgetView:(ScrobbleWidgetView *)view didClickAlbumAtIndex:(NSInteger)index;
+// View mode selection (Charts/Tracks)
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectViewMode:(ScrobbleWidgetViewMode)mode;
+// Track count selection (10/30/50)
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectTrackCount:(NSInteger)count;
+// View mode arrow navigation
+- (void)widgetViewNavigatePreviousViewMode:(ScrobbleWidgetView *)view;
+- (void)widgetViewNavigateNextViewMode:(ScrobbleWidgetView *)view;
+// Recent track click
+- (void)widgetView:(ScrobbleWidgetView *)view didClickRecentTrackAtIndex:(NSInteger)index;
 @end
 
 @interface ScrobbleWidgetView : NSView
@@ -83,6 +100,10 @@ typedef ScrobbleChartPeriod ScrobbleChartPage;
 // Profile info
 @property (nonatomic, copy, nullable) NSString *username;
 @property (nonatomic, strong, nullable) NSImage *profileImage;
+
+// View mode
+@property (nonatomic, assign) ScrobbleWidgetViewMode viewMode;
+@property (nonatomic, copy, nullable) NSString *viewModeTitle;
 
 // Current chart settings
 @property (nonatomic, assign) ScrobbleChartPeriod currentPeriod;
@@ -99,6 +120,9 @@ typedef ScrobbleChartPeriod ScrobbleChartPage;
 @property (nonatomic, strong, nullable) NSDictionary<NSURL*, NSImage*> *albumImages;  // Loaded images by URL
 @property (nonatomic, assign) NSInteger maxAlbums;  // Max albums to show (for scaling)
 
+// Recent tracks data (for Tracks view mode)
+@property (nonatomic, copy, nullable) NSArray<RecentTrack *> *recentTracks;
+@property (nonatomic, assign) NSInteger recentTrackCount;  // Selected count (10/30/50)
 
 // Status info
 @property (nonatomic, assign) NSInteger scrobbledToday;
@@ -134,6 +158,7 @@ typedef ScrobbleChartPeriod ScrobbleChartPage;
 // Get display titles
 + (NSString *)titleForPeriod:(ScrobbleChartPeriod)period;
 + (NSString *)titleForType:(ScrobbleChartType)type;
++ (NSString *)titleForViewMode:(ScrobbleWidgetViewMode)mode;
 
 // Legacy aliases
 + (NSString *)periodForPage:(ScrobbleChartPage)page;

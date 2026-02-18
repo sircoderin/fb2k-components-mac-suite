@@ -2,6 +2,21 @@
 
 All notable changes to foo_jl_scrobble (Last.fm Scrobbler) will be documented in this file.
 
+## [1.3.0] - 2026-02-13
+
+### Added
+- Recent Tracks view mode showing scrobbled tracks list with album art and relative timestamps
+- View mode switcher pill (Charts / Tracks) in widget header
+- Track count selector (10 / 30 / 50) for recent tracks list
+- Left/right arrow navigation to cycle between view modes
+- Scrollable content area (trackpad/mouse wheel) for both tracks list and album grid
+- Live Now Playing indicator: currently playing track appears instantly at top of tracks list (zero API calls)
+- Auto-refresh on scrobble: tracks list refreshes 15 seconds after a scrobble, with debouncing for rapid skips
+
+### Changed
+- Content area now clips and scrolls when items exceed available space
+- Scroll position resets automatically when switching view mode, period, type, or data
+
 ## [1.2.0] - 2026-02-01
 
 ### Added

@@ -30,6 +30,8 @@ static const char* const kWidgetCacheDuration = "widget_cache_duration";
 static const char* const kWidgetDisplayStyle = "widget_display_style";  // "default" or "playback2025"
 static const char* const kWidgetBackgroundColor = "widget_bg_color";    // ARGB as int64_t
 static const char* const kWidgetGlassBackground = "widget_glass_bg";    // Use glass effect
+static const char* const kWidgetViewMode = "widget_view_mode";          // "charts" or "tracks"
+static const char* const kWidgetRecentTrackCount = "widget_recent_track_count"; // 10, 30, or 50
 
 // Streak settings
 static const char* const kStreakDisplayEnabled = "streak_display_enabled";
@@ -234,6 +236,22 @@ inline bool isWidgetGlassBackground() {
 
 inline void setWidgetGlassBackground(bool enabled) {
     setConfigBool(kWidgetGlassBackground, enabled);
+}
+
+inline std::string getWidgetViewMode() {
+    return getConfigString(kWidgetViewMode, "charts");
+}
+
+inline void setWidgetViewMode(const std::string& mode) {
+    setConfigString(kWidgetViewMode, mode);
+}
+
+inline int64_t getWidgetRecentTrackCount() {
+    return getConfigInt(kWidgetRecentTrackCount, 10);
+}
+
+inline void setWidgetRecentTrackCount(int64_t count) {
+    setConfigInt(kWidgetRecentTrackCount, count);
 }
 
 // Streak accessors

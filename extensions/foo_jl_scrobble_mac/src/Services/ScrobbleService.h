@@ -67,6 +67,9 @@ extern NSNotificationName const ScrobbleServiceDidFailNotification;
 /// Send Now Playing notification
 - (void)sendNowPlaying:(ScrobbleTrack*)track;
 
+/// Clear Now Playing state (call on playback stop)
+- (void)clearNowPlaying;
+
 @end
 
 NS_ASSUME_NONNULL_END

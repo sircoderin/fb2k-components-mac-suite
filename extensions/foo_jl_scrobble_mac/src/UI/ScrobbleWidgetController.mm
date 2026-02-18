@@ -11,6 +11,8 @@
 #import "../Core/ScrobbleStreakCache.h"
 #import "../Core/ScrobbleNotifications.h"
 #import "../Core/TopAlbum.h"
+#import "../Core/RecentTrack.h"
+#import "../Core/ScrobbleTrack.h"
 #import "../LastFm/LastFmClient.h"
 #import "../LastFm/LastFmAuth.h"
 #import "../Services/ScrobbleService.h"
@@ -79,10 +81,14 @@
 @property (nonatomic, assign) BOOL isVisible;
 @property (nonatomic, assign) ScrobbleChartPeriod currentPeriod;
 @property (nonatomic, assign) ScrobbleChartType currentType;
+@property (nonatomic, assign) ScrobbleWidgetViewMode currentViewMode;
+@property (nonatomic, assign) NSInteger currentRecentTrackCount;
 // API result cache keyed by "period_type" (e.g., "7day_albums")
 @property (nonatomic, strong) NSMutableDictionary<NSString*, ScrobbleWidgetCacheEntry*> *resultCache;
 // Streak discovery token for cancellation
 @property (nonatomic, strong, nullable) NSUUID *streakDiscoveryToken;
+// Debounce timer for post-scrobble recent tracks refresh
+@property (nonatomic, strong, nullable) NSTimer *scrobbleRefreshDebounceTimer;
 @end
 
 @implementation ScrobbleWidgetController
@@ -98,6 +104,8 @@
         _resultCache = [NSMutableDictionary dictionary];
         _currentPeriod = ScrobbleChartPeriodWeekly;
         _currentType = ScrobbleChartTypeAlbums;
+        _currentViewMode = ScrobbleWidgetViewModeCharts;
+        _currentRecentTrackCount = 10;
     }
     return self;
 }
@@ -110,6 +118,7 @@
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_refreshTimer invalidate];
+    [_scrobbleRefreshDebounceTimer invalidate];
 }
 
 #pragma mark - View Lifecycle
@@ -123,6 +132,18 @@
     _widgetView.periodTitle = [ScrobbleWidgetView titleForPeriod:_currentPeriod];
     _widgetView.typeTitle = [ScrobbleWidgetView titleForType:_currentType];
     _widgetView.streakEnabled = scrobble_config::isStreakDisplayEnabled();
+
+    // Set view mode from config
+    std::string viewModeStr = scrobble_config::getWidgetViewMode();
+    if (viewModeStr == "tracks") {
+        _currentViewMode = ScrobbleWidgetViewModeTracks;
+    } else {
+        _currentViewMode = ScrobbleWidgetViewModeCharts;
+    }
+    _currentRecentTrackCount = scrobble_config::getWidgetRecentTrackCount();
+    _widgetView.viewMode = _currentViewMode;
+    _widgetView.viewModeTitle = [ScrobbleWidgetView titleForViewMode:_currentViewMode];
+    _widgetView.recentTrackCount = _currentRecentTrackCount;
 
     // Set display style from config
     std::string styleStr = scrobble_config::getWidgetDisplayStyle();
@@ -183,6 +204,12 @@
                                              selector:@selector(handleSettingsChanged:)
                                                  name:ScrobbleSettingsDidChangeNotification
                                                object:nil];
+
+    // Now Playing changes for live tracks list updates
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleNowPlayingChanged:)
+                                                 name:ScrobbleServiceNowPlayingDidChangeNotification
+                                               object:nil];
 }
 
 - (void)viewWillAppear {
@@ -192,7 +219,11 @@
     // Initial load
     [self updateAuthState];
     if ([[LastFmAuth shared] isAuthenticated]) {
-        [self refreshStats];
+        if (_currentViewMode == ScrobbleWidgetViewModeTracks) {
+            [self fetchRecentTracks];
+        } else {
+            [self refreshStats];
+        }
         [self startStreakDiscoveryIfNeeded];
     }
 
@@ -206,6 +237,10 @@
 
     // Stop refresh timer when not visible
     [self stopRefreshTimer];
+
+    // Cancel debounce timer
+    [_scrobbleRefreshDebounceTimer invalidate];
+    _scrobbleRefreshDebounceTimer = nil;
 
     // Cancel in-progress streak discovery
     if (_streakDiscoveryToken) {
@@ -236,7 +271,11 @@
 
 - (void)refreshTimerFired:(NSTimer *)timer {
     if (_isVisible && [[LastFmAuth shared] isAuthenticated]) {
-        [self refreshStats];
+        if (_currentViewMode == ScrobbleWidgetViewModeTracks) {
+            [self fetchRecentTracks];
+        } else {
+            [self refreshStats];
+        }
     }
 }
 
@@ -311,6 +350,106 @@
 // Legacy method
 - (void)switchToPage:(ScrobbleChartPage)page {
     [self switchToPeriod:page];
+}
+
+- (void)switchToViewMode:(ScrobbleWidgetViewMode)mode {
+    if (_currentViewMode == mode) return;
+
+    _currentViewMode = mode;
+    _widgetView.viewMode = mode;
+    _widgetView.viewModeTitle = [ScrobbleWidgetView titleForViewMode:mode];
+
+    scrobble_config::setWidgetViewMode(mode == ScrobbleWidgetViewModeTracks ? "tracks" : "charts");
+
+    _widgetView.isRefreshing = YES;
+    [_widgetView refreshDisplay];
+
+    if (mode == ScrobbleWidgetViewModeTracks) {
+        [self fetchRecentTracks];
+    } else {
+        [self refreshStatsKeepingContent:YES];
+    }
+}
+
+- (void)switchToTrackCount:(NSInteger)count {
+    if (_currentRecentTrackCount == count) return;
+
+    _currentRecentTrackCount = count;
+    _widgetView.recentTrackCount = count;
+
+    scrobble_config::setWidgetRecentTrackCount(count);
+
+    _widgetView.isRefreshing = YES;
+    [_widgetView refreshDisplay];
+    [self fetchRecentTracks];
+}
+
+- (void)fetchRecentTracks {
+    LastFmAuth *auth = [LastFmAuth shared];
+    if (!auth.isAuthenticated || !auth.username) {
+        _widgetView.isRefreshing = NO;
+        return;
+    }
+
+    NSInteger limit = _currentRecentTrackCount;
+
+    [[LastFmClient shared] fetchRecentTracks:auth.username limit:limit
+        completion:^(NSArray<RecentTrack *> *tracks, NSError *error) {
+            self.widgetView.isRefreshing = NO;
+
+            if (error) {
+                if (self.widgetView.recentTracks.count == 0) {
+                    self.widgetView.state = ScrobbleWidgetStateError;
+                    self.widgetView.errorMessage = error.localizedDescription;
+                }
+                [self.widgetView refreshDisplay];
+                return;
+            }
+
+            self.widgetView.errorMessage = nil;
+            self.widgetView.recentTracks = tracks;
+            self.widgetView.lastUpdated = [NSDate date];
+            self.widgetView.state = (tracks.count > 0) ? ScrobbleWidgetStateReady : ScrobbleWidgetStateEmpty;
+
+            [self loadRecentTrackImages:tracks];
+            [self.widgetView refreshDisplay];
+    }];
+}
+
+- (void)loadRecentTrackImages:(NSArray<RecentTrack *> *)tracks {
+    for (RecentTrack *track in tracks) {
+        if (!track.imageURL) continue;
+
+        NSImage *cached = [[ScrobbleWidgetImageCache shared] cachedImageForURL:track.imageURL];
+        if (cached) {
+            [_loadedImages setObject:cached forKey:track.imageURL];
+            continue;
+        }
+
+        NSURL *url = track.imageURL;
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSData *data = [NSData dataWithContentsOfURL:url];
+            if (data) {
+                NSImage *image = [[NSImage alloc] initWithData:data];
+                if (image) {
+                    [[ScrobbleWidgetImageCache shared] cacheImage:image forURL:url];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        __strong typeof(weakSelf) strongSelf = weakSelf;
+                        if (!strongSelf) return;
+                        [strongSelf.loadedImages setObject:image forKey:url];
+                        strongSelf.widgetView.albumImages = [strongSelf.loadedImages copy];
+                        [strongSelf.widgetView refreshDisplay];
+                    });
+                }
+            }
+        });
+    }
+
+    if (_loadedImages.count > 0) {
+        _widgetView.albumImages = [_loadedImages copy];
+        [_widgetView refreshDisplay];
+    }
 }
 
 #pragma mark - Cache Management
@@ -671,8 +810,14 @@
 #pragma mark - ScrobbleWidgetViewDelegate
 
 - (void)widgetViewRequestsRefresh:(ScrobbleWidgetView *)view {
-    // User-initiated refresh bypasses cache
-    [self refreshStatsKeepingContent:NO forceRefresh:YES];
+    if (_currentViewMode == ScrobbleWidgetViewModeTracks) {
+        _widgetView.isRefreshing = YES;
+        [_widgetView refreshDisplay];
+        [self fetchRecentTracks];
+    } else {
+        // User-initiated refresh bypasses cache
+        [self refreshStatsKeepingContent:NO forceRefresh:YES];
+    }
 }
 
 - (void)widgetViewNavigatePreviousPeriod:(ScrobbleWidgetView *)view {
@@ -769,6 +914,35 @@
         if (url) {
             [[NSWorkspace sharedWorkspace] openURL:url];
         }
+    }
+}
+
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectViewMode:(ScrobbleWidgetViewMode)mode {
+    [self switchToViewMode:mode];
+}
+
+- (void)widgetView:(ScrobbleWidgetView *)view didSelectTrackCount:(NSInteger)count {
+    [self switchToTrackCount:count];
+}
+
+- (void)widgetViewNavigatePreviousViewMode:(ScrobbleWidgetView *)view {
+    ScrobbleWidgetViewMode prev = (_currentViewMode == 0)
+        ? (ScrobbleWidgetViewMode)(ScrobbleWidgetViewModeCount - 1)
+        : (ScrobbleWidgetViewMode)(_currentViewMode - 1);
+    [self switchToViewMode:prev];
+}
+
+- (void)widgetViewNavigateNextViewMode:(ScrobbleWidgetView *)view {
+    ScrobbleWidgetViewMode next = (ScrobbleWidgetViewMode)((_currentViewMode + 1) % ScrobbleWidgetViewModeCount);
+    [self switchToViewMode:next];
+}
+
+- (void)widgetView:(ScrobbleWidgetView *)view didClickRecentTrackAtIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)_widgetView.recentTracks.count) return;
+
+    RecentTrack *track = _widgetView.recentTracks[index];
+    if (track.lastfmURL) {
+        [[NSWorkspace sharedWorkspace] openURL:track.lastfmURL];
     }
 }
 
@@ -997,7 +1171,50 @@
 
         [self updateStreakDisplay];
         [self.widgetView refreshDisplay];
+
+        // Schedule debounced recent tracks refresh (only in tracks mode)
+        if (self.currentViewMode == ScrobbleWidgetViewModeTracks && self.isVisible) {
+            [self.scrobbleRefreshDebounceTimer invalidate];
+            self.scrobbleRefreshDebounceTimer =
+                [NSTimer scheduledTimerWithTimeInterval:15.0
+                                                target:self
+                                              selector:@selector(debouncedScrobbleRefresh)
+                                              userInfo:nil
+                                               repeats:NO];
+        }
     });
+}
+
+- (void)handleNowPlayingChanged:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Only update if in tracks view mode and visible
+        if (self.currentViewMode != ScrobbleWidgetViewModeTracks || !self.isVisible) return;
+
+        ScrobbleTrack *track = notification.userInfo[@"track"];
+        NSMutableArray<RecentTrack *> *tracks =
+            [self.widgetView.recentTracks mutableCopy] ?: [NSMutableArray new];
+
+        // Remove any existing now-playing entry
+        NSIndexSet *nowPlayingIndices = [tracks indexesOfObjectsPassingTest:
+            ^BOOL(RecentTrack *t, NSUInteger idx, BOOL *stop) {
+                return t.isNowPlaying;
+            }];
+        [tracks removeObjectsAtIndexes:nowPlayingIndices];
+
+        // Insert new now-playing entry at top (if track provided)
+        if (track) {
+            RecentTrack *npTrack = [RecentTrack trackFromScrobbleTrack:track];
+            [tracks insertObject:npTrack atIndex:0];
+        }
+
+        self.widgetView.recentTracks = tracks;
+        [self.widgetView refreshDisplay];
+    });
+}
+
+- (void)debouncedScrobbleRefresh {
+    _scrobbleRefreshDebounceTimer = nil;
+    [self fetchRecentTracks];
 }
 
 - (void)handleAccountChanged:(NSNotification *)notification {

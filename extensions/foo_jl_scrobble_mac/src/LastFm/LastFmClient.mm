@@ -10,6 +10,7 @@
 #import "LastFmConstants.h"
 #import "../Core/ScrobbleTrack.h"
 #import "../Core/TopAlbum.h"
+#import "../Core/RecentTrack.h"
 #import "../Core/ScrobbleConfig.h"
 #import "../Core/MD5.h"
 
@@ -325,6 +326,28 @@
         }
 
         completion(name, imageURL, nil);
+    }];
+}
+
+#pragma mark - Recent Tracks
+
+- (void)fetchRecentTracks:(NSString*)username
+                    limit:(NSInteger)limit
+               completion:(LastFmRecentTracksCompletion)completion {
+    [self fetchRecentTracksPage:username from:0 to:0 page:1 limit:limit
+                     completion:^(NSArray *trackDicts, NSInteger totalPages, NSError *error) {
+        if (error) {
+            completion(nil, error);
+            return;
+        }
+        NSMutableArray<RecentTrack *> *tracks = [NSMutableArray array];
+        for (NSDictionary *dict in trackDicts) {
+            RecentTrack *track = [RecentTrack trackFromDictionary:dict];
+            if (track) {
+                [tracks addObject:track];
+            }
+        }
+        completion(tracks, nil);
     }];
 }
 
