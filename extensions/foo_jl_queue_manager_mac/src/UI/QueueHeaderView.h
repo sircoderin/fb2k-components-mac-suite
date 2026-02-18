@@ -16,7 +16,4 @@
 @property (nonatomic, assign) CGFloat titleColumnWidth;
 @property (nonatomic, assign) CGFloat durationColumnWidth;
 
-// Glass background mode
-@property (nonatomic, assign) BOOL glassBackground;
-
 @end
