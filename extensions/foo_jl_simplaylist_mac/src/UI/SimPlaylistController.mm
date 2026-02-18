@@ -677,6 +677,10 @@ struct ReloadOperation {
         if (anchorIndex >= 0) {
             _scrollAnchorIndices[@(_currentPlaylistIndex)] = @(anchorIndex);
         }
+        // Persist group cache for the outgoing playlist (async)
+        if (isSwitchingPlaylist && _currentPlaylistIndex >= 0) {
+            [self saveGroupCacheForPlaylist:(t_size)_currentPlaylistIndex synchronous:NO];
+        }
     }
 
     // Reset initialized flag for the new playlist
@@ -735,18 +739,27 @@ struct ReloadOperation {
     BOOL useGrouping = (activePreset && activePreset.headerPattern.length > 0);
 
     if (useGrouping) {
-        // Check if we have a saved scroll position for this playlist
-        // Use sync when: switching playlists with saved position, OR refreshing current playlist with saved position
-        // This avoids the visual "jump" from flat mode to grouped mode
-        BOOL hasSavedPosition = (_scrollAnchorIndices[@(activePlaylist)] != nil);
+        // Try loading cached group data first for instant rendering
+        BOOL cacheHit = [self loadGroupCacheForPlaylist:activePlaylist itemCount:itemCount preset:activePreset];
 
-        if (hasSavedPosition) {
-            // SYNCHRONOUS: Detect groups immediately for instant scroll restore
-            _scrollRestorePlaylistIndex = activePlaylist;  // Set for performScrollRestore
-            [self detectGroupsForPlaylistSync:activePlaylist itemCount:itemCount preset:activePreset];
+        if (cacheHit) {
+            // Cache loaded valid data - view is immediately usable
+            _currentPlaylistInitialized = YES;
+            // Validate in background (won't clear current display)
+            _scrollRestorePlaylistIndex = activePlaylist;
+            [self detectGroupsForPlaylistBackground:activePlaylist itemCount:itemCount preset:activePreset];
         } else {
-            // ASYNC: First visit or no saved position - async is fine
-            [self detectGroupsForPlaylist:activePlaylist itemCount:itemCount preset:activePreset];
+            // Cache miss - fall back to existing detection paths
+            BOOL hasSavedPosition = (_scrollAnchorIndices[@(activePlaylist)] != nil);
+
+            if (hasSavedPosition) {
+                // SYNCHRONOUS: Detect groups immediately for instant scroll restore
+                _scrollRestorePlaylistIndex = activePlaylist;
+                [self detectGroupsForPlaylistSync:activePlaylist itemCount:itemCount preset:activePreset];
+            } else {
+                // ASYNC: First visit or no saved position - async is fine
+                [self detectGroupsForPlaylist:activePlaylist itemCount:itemCount preset:activePreset];
+            }
         }
     } else {
         // No grouping - just set item count
@@ -780,19 +793,17 @@ struct ReloadOperation {
     // Display
     [_playlistView reloadData];
 
-    // Mark playlist for scroll restoration if switching
+    // Scroll restoration
     if (isSwitchingPlaylist) {
-        // Check if sync detection already handled the restore
-        BOOL alreadyRestored = (useGrouping && _scrollAnchorIndices[@(activePlaylist)] != nil);
-
-        if (!alreadyRestored) {
+        if (useGrouping && _scrollAnchorIndices[@(activePlaylist)] != nil) {
+            // Sync or cache-hit path set _scrollRestorePlaylistIndex above
+            // Groups are already loaded, so restore scroll immediately
+            [self scheduleDeferredScrollRestore];
+        } else if (!useGrouping) {
             _scrollRestorePlaylistIndex = activePlaylist;
-            // Only restore immediately if NOT using grouping (groups change row positions)
-            // If using grouping, restore will happen after group detection completes
-            if (!useGrouping) {
-                [self scheduleDeferredScrollRestore];
-            }
+            [self scheduleDeferredScrollRestore];
         }
+        // Async path: restore happens after detection completes (handled in detectGroupsForPlaylist:)
     }
     // When NOT switching (just refreshing same playlist), keep current scroll position
 }
@@ -1153,12 +1164,17 @@ static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgro
                 // NOW it's safe to save scroll positions - full data available
                 strongSelf->_currentPlaylistInitialized = YES;
 
+                // Persist group cache after full detection
+                [strongSelf saveGroupCacheForPlaylist:playlist synchronous:NO];
+
                 [strongSelf.playlistView reloadData];
             });
         });
     } else {
         // No background detection needed - full data already available
         _currentPlaylistInitialized = YES;
+        // Persist group cache
+        [self saveGroupCacheForPlaylist:playlist synchronous:NO];
     }
 }
 
@@ -1311,12 +1327,302 @@ static NSInteger calculatePaddingForGroup(NSInteger trackCount, NSInteger subgro
             // Full detection complete - safe to save scroll positions now
             strongSelf->_currentPlaylistInitialized = YES;
 
+            // Persist group cache after full detection
+            [strongSelf saveGroupCacheForPlaylist:playlist synchronous:NO];
+
             // Schedule scroll restore after frame size change settles
             if (strongSelf->_scrollRestorePlaylistIndex >= 0) {
                 [strongSelf scheduleDeferredScrollRestore];
             }
 
             [strongSelf.playlistView reloadData];
+        });
+    });
+}
+
+// =============================================================================
+// GROUP CACHE PERSISTENCE
+// =============================================================================
+
+// Build the preset hash string for cache validation: "headerPattern|subgroupPattern"
+static NSString *presetHashForPreset(GroupPreset *preset) {
+    NSString *sub = [preset subgroupPattern] ?: @"";
+    return [NSString stringWithFormat:@"%@|%@", preset.headerPattern, sub];
+}
+
+- (void)saveGroupCacheForPlaylist:(t_size)playlist synchronous:(BOOL)synchronous {
+    if (!_currentPlaylistInitialized) return;
+    if (_playlistView.groupStarts.count == 0) return;
+
+    // Get playlist name
+    auto pm = playlist_manager::get();
+    if (playlist >= pm->get_playlist_count()) return;
+    pfc::string8 nameStr;
+    pm->playlist_get_name(playlist, nameStr);
+    NSString *cacheKeyNS = [NSString stringWithUTF8String:
+        simplaylist_config::groupCacheKey(nameStr.c_str()).c_str()];
+
+    // Capture snapshot on main thread
+    NSArray<NSNumber *> *groupStarts = [_playlistView.groupStarts copy];
+    NSArray<NSString *> *groupHeaders = [_playlistView.groupHeaders copy];
+    NSArray<NSString *> *groupArtKeys = [_playlistView.groupArtKeys copy];
+    NSArray<NSNumber *> *subgroupStarts = [_playlistView.subgroupStarts copy];
+    NSArray<NSString *> *subgroupHeaders = [_playlistView.subgroupHeaders copy];
+    NSInteger itemCount = _playlistView.itemCount;
+
+    // Get current scroll anchor
+    NSInteger scrollAnchor = -1;
+    NSNumber *anchorNum = _scrollAnchorIndices[@(playlist)];
+    if (anchorNum) {
+        scrollAnchor = [anchorNum integerValue];
+    } else {
+        scrollAnchor = [self firstVisiblePlaylistIndex];
+    }
+
+    // Get current preset hash
+    GroupPreset *activePreset = nil;
+    if (_activePresetIndex >= 0 && _activePresetIndex < (NSInteger)_groupPresets.count) {
+        activePreset = _groupPresets[_activePresetIndex];
+    }
+    NSString *presetHash = activePreset ? presetHashForPreset(activePreset) : @"";
+
+    // Serialize and write
+    auto doSave = ^{
+        @autoreleasepool {
+            NSMutableDictionary *cache = [NSMutableDictionary dictionary];
+            cache[@"v"] = @(1);
+            cache[@"itemCount"] = @(itemCount);
+            cache[@"presetHash"] = presetHash;
+            cache[@"scrollAnchor"] = @(scrollAnchor);
+            cache[@"groupStarts"] = groupStarts;
+            cache[@"groupHeaders"] = groupHeaders;
+            cache[@"groupArtKeys"] = groupArtKeys;
+            cache[@"subgroupStarts"] = subgroupStarts;
+            cache[@"subgroupHeaders"] = subgroupHeaders;
+
+            NSError *error = nil;
+            NSData *jsonData = [NSJSONSerialization dataWithJSONObject:cache options:0 error:&error];
+            if (!jsonData) return;
+
+            NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+            if (!jsonString) return;
+
+            simplaylist_config::setConfigString([cacheKeyNS UTF8String], [jsonString UTF8String]);
+        }
+    };
+
+    if (synchronous) {
+        doSave();
+    } else {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), doSave);
+    }
+}
+
+- (void)saveGroupCacheForCurrentPlaylist {
+    if (_currentPlaylistIndex < 0) return;
+    [self saveGroupCacheForPlaylist:(t_size)_currentPlaylistIndex synchronous:YES];
+}
+
+- (BOOL)loadGroupCacheForPlaylist:(t_size)playlist itemCount:(t_size)itemCount preset:(GroupPreset *)preset {
+    // Get playlist name and load cache JSON
+    auto pm = playlist_manager::get();
+    if (playlist >= pm->get_playlist_count()) return NO;
+    pfc::string8 nameStr;
+    pm->playlist_get_name(playlist, nameStr);
+    std::string cacheKey = simplaylist_config::groupCacheKey(nameStr.c_str());
+
+    std::string jsonStr = simplaylist_config::getConfigString(cacheKey.c_str(), "");
+    if (jsonStr.empty()) return NO;
+
+    // Parse JSON
+    NSData *jsonData = [[NSString stringWithUTF8String:jsonStr.c_str()] dataUsingEncoding:NSUTF8StringEncoding];
+    if (!jsonData) return NO;
+
+    NSError *error = nil;
+    NSDictionary *cache = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&error];
+    if (!cache || error) return NO;
+
+    // Validate schema version
+    NSNumber *version = cache[@"v"];
+    if (!version || [version integerValue] != 1) return NO;
+
+    // Validate item count
+    NSNumber *cachedItemCount = cache[@"itemCount"];
+    if (!cachedItemCount || [cachedItemCount integerValue] != (NSInteger)itemCount) return NO;
+
+    // Validate preset hash
+    NSString *cachedPresetHash = cache[@"presetHash"];
+    NSString *currentPresetHash = presetHashForPreset(preset);
+    if (!cachedPresetHash || ![cachedPresetHash isEqualToString:currentPresetHash]) return NO;
+
+    // Extract arrays
+    NSArray *groupStarts = cache[@"groupStarts"];
+    NSArray *groupHeaders = cache[@"groupHeaders"];
+    NSArray *groupArtKeys = cache[@"groupArtKeys"];
+    NSArray *subgroupStarts = cache[@"subgroupStarts"];
+    NSArray *subgroupHeaders = cache[@"subgroupHeaders"];
+    NSNumber *scrollAnchor = cache[@"scrollAnchor"];
+
+    if (!groupStarts || !groupHeaders || !groupArtKeys) return NO;
+    if (groupStarts.count != groupHeaders.count || groupStarts.count != groupArtKeys.count) return NO;
+    if (groupStarts.count == 0) return NO;
+
+    // Apply cached data to view
+    _playlistView.itemCount = itemCount;
+    _playlistView.groupStarts = groupStarts;
+    _playlistView.groupHeaders = groupHeaders;
+    _playlistView.groupArtKeys = groupArtKeys;
+    _playlistView.subgroupStarts = subgroupStarts ?: @[];
+    _playlistView.subgroupHeaders = subgroupHeaders ?: @[];
+    [self updateSubgroupCountPerGroup];
+    [self filterSingleSubgroupsIfNeeded];
+
+    // Recompute padding from current display settings (not cached — depends on runtime layout)
+    CGFloat rowHeight = _playlistView.rowHeight;
+    CGFloat albumArtSize = _playlistView.albumArtSize;
+    NSInteger headerStyle = _playlistView.headerDisplayStyle;
+
+    NSMutableArray<NSNumber *> *paddingRows = [NSMutableArray arrayWithCapacity:groupStarts.count];
+    for (NSUInteger g = 0; g < groupStarts.count; g++) {
+        NSInteger groupStart = [groupStarts[g] integerValue];
+        NSInteger groupEnd = (g + 1 < groupStarts.count) ? [groupStarts[g + 1] integerValue] : (NSInteger)itemCount;
+        NSInteger trackCount = groupEnd - groupStart;
+        NSInteger subgroupsInGroup = (g < _playlistView.subgroupCountPerGroup.count)
+            ? [_playlistView.subgroupCountPerGroup[g] integerValue] : 0;
+        [paddingRows addObject:@(calculatePaddingForGroup(trackCount, subgroupsInGroup,
+                                                          albumArtSize, rowHeight, headerStyle))];
+    }
+    _playlistView.groupPaddingRows = paddingRows;
+    [_playlistView rebuildPaddingCache];
+    [_playlistView rebuildSubgroupRowCache];
+
+    // Restore scroll anchor
+    if (scrollAnchor && [scrollAnchor integerValue] >= 0) {
+        _scrollAnchorIndices[@(playlist)] = scrollAnchor;
+    }
+
+    return YES;
+}
+
+// Background re-detection that validates cached groups without clearing the current display.
+// If results differ from what's currently shown, applies the new data + reloads.
+- (void)detectGroupsForPlaylistBackground:(t_size)playlist itemCount:(t_size)itemCount preset:(GroupPreset *)preset {
+    NSInteger currentGeneration = ++_groupDetectionGeneration;
+
+    // Get all handles on main thread
+    auto pm = playlist_manager::get();
+    metadb_handle_list handles;
+    pm->playlist_get_all_items(playlist, handles);
+
+    auto handlesPtr = std::make_shared<metadb_handle_list>(std::move(handles));
+    NSString *headerPattern = preset.headerPattern;
+    NSString *subgroupPattern = [preset subgroupPattern];
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        if (_groupDetectionGeneration != currentGeneration) return;
+
+        // Compile patterns
+        titleformat_object::ptr headerScript;
+        static_api_ptr_t<titleformat_compiler>()->compile_safe_ex(
+            headerScript, [headerPattern UTF8String], nullptr);
+
+        titleformat_object::ptr subgroupScript;
+        BOOL hasSubgroups = (subgroupPattern && subgroupPattern.length > 0);
+        if (hasSubgroups) {
+            static_api_ptr_t<titleformat_compiler>()->compile_safe_ex(
+                subgroupScript, [subgroupPattern UTF8String], nullptr);
+        }
+
+        // Detect groups
+        NSMutableArray<NSNumber *> *groupStarts = [NSMutableArray array];
+        NSMutableArray<NSString *> *groupHeaders = [NSMutableArray array];
+        NSMutableArray<NSString *> *groupArtKeys = [NSMutableArray array];
+        NSMutableArray<NSNumber *> *subgroupStarts = [NSMutableArray array];
+        NSMutableArray<NSString *> *subgroupHeaders = [NSMutableArray array];
+
+        bool showFirstSubgroup = simplaylist_config::getConfigBool(
+            simplaylist_config::kShowFirstSubgroupHeader,
+            simplaylist_config::kDefaultShowFirstSubgroupHeader);
+        SubgroupDetector subgroupDetector(showFirstSubgroup, g_subgroupDebugEnabled);
+
+        pfc::string8 currentHeader("");
+        pfc::string8 formattedHeader;
+        pfc::string8 formattedSubgroup;
+
+        for (t_size i = 0; i < handlesPtr->get_count(); i++) { @autoreleasepool {
+            if (_groupDetectionGeneration != currentGeneration) return;
+
+            (*handlesPtr)[i]->format_title(nullptr, formattedHeader, headerScript, nullptr);
+            BOOL isNewGroup = (i == 0 || strcmp(formattedHeader.c_str(), currentHeader.c_str()) != 0);
+
+            if (isNewGroup) {
+                [groupStarts addObject:@(i)];
+                [groupHeaders addObject:[NSString stringWithUTF8String:formattedHeader.c_str()]];
+                [groupArtKeys addObject:[NSString stringWithUTF8String:(*handlesPtr)[i]->get_path()]];
+                currentHeader = formattedHeader;
+                subgroupDetector.enterNewGroup();
+            }
+
+            if (hasSubgroups) {
+                (*handlesPtr)[i]->format_title(nullptr, formattedSubgroup, subgroupScript, nullptr);
+                subgroupDetector.shouldAddSubgroup(formattedSubgroup, isNewGroup,
+                                                    subgroupStarts, subgroupHeaders, i);
+            }
+        }}
+
+        if (_groupDetectionGeneration != currentGeneration) return;
+
+        // Compare with current cached data on main thread
+        dispatch_async(dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            if (_groupDetectionGeneration != currentGeneration) return;
+
+            // Check if groups changed
+            BOOL groupsChanged = ![groupStarts isEqualToArray:strongSelf.playlistView.groupStarts] ||
+                                 ![groupHeaders isEqualToArray:strongSelf.playlistView.groupHeaders] ||
+                                 ![groupArtKeys isEqualToArray:strongSelf.playlistView.groupArtKeys];
+            BOOL subgroupsChanged = ![subgroupStarts isEqualToArray:strongSelf.playlistView.subgroupStarts] ||
+                                    ![subgroupHeaders isEqualToArray:strongSelf.playlistView.subgroupHeaders];
+
+            if (groupsChanged || subgroupsChanged) {
+                // Data changed - apply new groups
+                strongSelf.playlistView.groupStarts = groupStarts;
+                strongSelf.playlistView.groupHeaders = groupHeaders;
+                strongSelf.playlistView.groupArtKeys = groupArtKeys;
+                strongSelf.playlistView.subgroupStarts = subgroupStarts;
+                strongSelf.playlistView.subgroupHeaders = subgroupHeaders;
+                [strongSelf updateSubgroupCountPerGroup];
+                [strongSelf filterSingleSubgroupsIfNeeded];
+
+                // Recalculate padding
+                CGFloat rh = strongSelf.playlistView.rowHeight;
+                CGFloat aas = strongSelf.playlistView.albumArtSize;
+                NSInteger hs = strongSelf.playlistView.headerDisplayStyle;
+
+                NSMutableArray<NSNumber *> *paddingRows = [NSMutableArray arrayWithCapacity:groupStarts.count];
+                for (NSUInteger g = 0; g < groupStarts.count; g++) {
+                    NSInteger gStart = [groupStarts[g] integerValue];
+                    NSInteger gEnd = (g + 1 < groupStarts.count) ? [groupStarts[g + 1] integerValue] : (NSInteger)itemCount;
+                    NSInteger trackCount = gEnd - gStart;
+                    NSInteger subgroupsInGroup = (g < strongSelf.playlistView.subgroupCountPerGroup.count)
+                        ? [strongSelf.playlistView.subgroupCountPerGroup[g] integerValue] : 0;
+                    [paddingRows addObject:@(calculatePaddingForGroup(trackCount, subgroupsInGroup,
+                                                                       aas, rh, hs))];
+                }
+                strongSelf.playlistView.groupPaddingRows = paddingRows;
+                [strongSelf.playlistView rebuildPaddingCache];
+                [strongSelf.playlistView rebuildSubgroupRowCache];
+
+                CGFloat newHeight = [strongSelf.playlistView totalContentHeightCached];
+                [strongSelf.playlistView setFrameSize:NSMakeSize(strongSelf.playlistView.frame.size.width, newHeight)];
+                [strongSelf.playlistView reloadData];
+            }
+
+            // Mark initialized and save updated cache
+            strongSelf->_currentPlaylistInitialized = YES;
+            [strongSelf saveGroupCacheForPlaylist:playlist synchronous:NO];
         });
     });
 }

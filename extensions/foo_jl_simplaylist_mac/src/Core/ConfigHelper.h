@@ -227,4 +227,28 @@ inline const char* getDefaultCustomColumnsJSON() {
 })JSON";
 }
 
+// Sanitize playlist name for use as a config key component.
+// Replaces non-alphanumeric/underscore/dash chars with '_', truncates to 64 chars.
+inline std::string sanitizePlaylistName(const char* name) {
+    if (!name) return "";
+    std::string result;
+    result.reserve(64);
+    for (const char* p = name; *p && result.size() < 64; ++p) {
+        char c = *p;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '-') {
+            result += c;
+        } else {
+            result += '_';
+        }
+    }
+    return result;
+}
+
+// Build a config key for storing group cache for a playlist.
+// Returns "group_cache.<sanitized_name>"
+inline std::string groupCacheKey(const char* playlistName) {
+    return std::string("group_cache.") + sanitizePlaylistName(playlistName);
+}
+
 } // namespace simplaylist_config

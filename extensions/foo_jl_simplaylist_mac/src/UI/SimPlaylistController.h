@@ -35,6 +35,9 @@ NS_ASSUME_NONNULL_BEGIN
 // Rebuild the view from current playlist
 - (void)rebuildFromPlaylist;
 
+// Save group cache for current playlist (synchronous, for shutdown)
+- (void)saveGroupCacheForCurrentPlaylist;
+
 @end
 
 NS_ASSUME_NONNULL_END

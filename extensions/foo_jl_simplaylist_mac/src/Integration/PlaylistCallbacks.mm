@@ -177,7 +177,17 @@ void SimPlaylistCallbackManager::initCallbacks() {
     }
 }
 
+void SimPlaylistCallbackManager::onShutdown() {
+    // Save group cache for all registered controllers before shutdown.
+    // Must run on main thread (accesses UI state), and we're already on main in on_quit.
+    std::lock_guard<std::mutex> lock(g_controllersMutex);
+    for (SimPlaylistController *c in g_controllers) {
+        [c saveGroupCacheForCurrentPlaylist];
+    }
+}
+
 void SimPlaylistCallbackManager::shutdownCallbacks() {
+    onShutdown();
     delete g_playlist_callback;
     g_playlist_callback = nullptr;
 }

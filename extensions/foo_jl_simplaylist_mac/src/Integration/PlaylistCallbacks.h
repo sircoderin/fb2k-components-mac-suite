@@ -37,6 +37,9 @@ public:
     void initCallbacks();
     void shutdownCallbacks();
 
+    // Save group cache for all registered controllers (called during shutdown)
+    void onShutdown();
+
 private:
     SimPlaylistCallbackManager() = default;
 };
