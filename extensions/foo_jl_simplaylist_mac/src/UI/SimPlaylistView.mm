@@ -2308,30 +2308,34 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
                                                  requiringSecureCoding:NO
                                                                  error:nil];
 
-    NSMutableArray<NSDraggingItem *> *dragItems = [NSMutableArray array];
+    // Always use a SINGLE NSDraggingItem — multiple items cause macOS to stack them
+    // with per-item Y offsets, shifting the drag image far from the cursor.
+    // Internal drag data is carried via _currentDragData (retrieved via draggingSource),
+    // so the pasteboard writer only needs to handle Finder compatibility.
+    NSDraggingItem *dragItem;
 
     if (fileURLs.count > 0) {
-        // Use SimPlaylistDragItem: wraps NSURL writing (Finder compatible) + internal type
-        for (NSURL *url in fileURLs) {
-            SimPlaylistDragItem *writer = [[SimPlaylistDragItem alloc] init];
-            writer.fileURL = url;
-            writer.internalData = internalData;
-            NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:writer];
-            item.draggingFrame = dragFrame;
-            item.imageComponentsProvider = imageProvider;
-            [dragItems addObject:item];
-        }
+        // Use SimPlaylistDragItem with first URL for Finder single-file drop
+        SimPlaylistDragItem *writer = [[SimPlaylistDragItem alloc] init];
+        writer.fileURL = fileURLs.firstObject;
+        writer.internalData = internalData;
+        dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:writer];
     } else {
         // No file URLs (cloud/non-local tracks) — internal type only
         NSPasteboardItem *pbItem = [[NSPasteboardItem alloc] init];
         [pbItem setData:internalData forType:SimPlaylistPasteboardType];
-        NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:pbItem];
-        item.draggingFrame = dragFrame;
-        item.imageComponentsProvider = imageProvider;
-        [dragItems addObject:item];
+        dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:pbItem];
     }
 
-    [self beginDraggingSessionWithItems:dragItems event:event source:self];
+    dragItem.draggingFrame = dragFrame;
+    dragItem.imageComponentsProvider = imageProvider;
+
+    NSDraggingSession *session = [self beginDraggingSessionWithItems:@[dragItem] event:event source:self];
+
+    // For multi-file Finder drops, write all file URLs to the session pasteboard
+    if (fileURLs.count > 1) {
+        [session.draggingPasteboard writeObjects:fileURLs];
+    }
 }
 
 - (void)mouseUp:(NSEvent *)event {
