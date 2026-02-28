@@ -837,6 +837,10 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     if (firstRow < 0) firstRow = 0;
     if (lastRow < 0 || lastRow >= totalRows) lastRow = totalRows - 1;
 
+    // Add small buffer for smooth scrolling
+    firstRow = MAX(0, firstRow - 1);
+    lastRow = MIN(totalRows - 1, lastRow + 1);
+
     // STEP 1: Fill group column background FIRST (before any content)
     // This ensures header text drawn later won't be covered
     if (_groupColumnWidth > 0 && _groupStarts.count > 0) {
