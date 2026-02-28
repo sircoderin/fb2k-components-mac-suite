@@ -2458,10 +2458,8 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
             [self moveFocusBy:([self rowCount] - _focusIndex) extendSelection:hasShift];
             break;
 
-        case ' ':  // Space - toggle selection at focus
-            if (_focusIndex >= 0) {
-                [self toggleSelectionAtIndex:_focusIndex];
-            }
+        case ' ':  // Space - toggle play/pause (consistent with foobar2000 convention)
+            playback_control::get()->toggle_pause();
             break;
 
         case '\r':  // Enter - execute default action on focused track
