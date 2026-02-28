@@ -334,27 +334,21 @@ struct ReloadOperation {
     BOOL glassBackground = simplaylist_config::getConfigBool(
         simplaylist_config::kGlassBackground,
         simplaylist_config::kDefaultGlassBackground);
-    fb2k_ui::SizeVariant headerSize = static_cast<fb2k_ui::SizeVariant>(
-        simplaylist_config::getConfigInt(
-            simplaylist_config::kColumnHeaderSize,
-            simplaylist_config::kDefaultColumnHeaderSize));
-    fb2k_ui::AccentMode accentMode = static_cast<fb2k_ui::AccentMode>(
-        simplaylist_config::getConfigInt(
-            simplaylist_config::kHeaderAccentColor,
-            simplaylist_config::kDefaultHeaderAccentColor));
-
-    // Create container view - use glass helper for transparent mode
+    // Create container view - glass uses NSVisualEffectView for transparency
     NSView *container;
     if (glassBackground) {
-        container = fb2k_ui::createGlassContainer(NSMakeRect(0, 0, 400, 300));
+        NSVisualEffectView *effectView = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+        effectView.material = NSVisualEffectMaterialSidebar;
+        effectView.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+        effectView.state = NSVisualEffectStateFollowsWindowActiveState;
+        container = effectView;
     } else {
         container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
     }
     container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.view = container;
 
-    // Header height from shared UIStyles
-    CGFloat headerHeight = fb2k_ui::headerHeight(headerSize);
+    CGFloat headerHeight = fb2k_ui::kDefaultHeaderHeight;
     CGFloat containerHeight = 300;
 
     // Create header bar at TOP (in non-flipped view, y increases upward)
@@ -365,8 +359,7 @@ struct ReloadOperation {
     _headerBar.groupColumnWidth = simplaylist_config::getConfigInt(
         simplaylist_config::kGroupColumnWidth,
         simplaylist_config::kDefaultGroupColumnWidth);
-    _headerBar.headerSize = headerSize;
-    _headerBar.accentMode = accentMode;
+    _headerBar.headerHeight = headerHeight;
     _headerBar.glassBackground = glassBackground;
     [container addSubview:_headerBar];
 
@@ -394,7 +387,11 @@ struct ReloadOperation {
 
     // Configure scroll view and set document view
     _scrollView.documentView = _playlistView;
-    fb2k_ui::configureScrollViewForGlass(_scrollView, glassBackground);
+    _scrollView.drawsBackground = !glassBackground;
+    _scrollView.contentView.drawsBackground = !glassBackground;
+    if (!glassBackground) {
+        _scrollView.backgroundColor = fb2k_ui::backgroundColor();
+    }
     [container addSubview:_scrollView];
 
     // Observe scroll changes to sync header
@@ -459,20 +456,10 @@ struct ReloadOperation {
         _activePresetIndex = 0;
     }
 
-    // Reload header size and accent mode from config
-    fb2k_ui::SizeVariant headerSize = static_cast<fb2k_ui::SizeVariant>(
-        simplaylist_config::getConfigInt(
-            simplaylist_config::kColumnHeaderSize,
-            simplaylist_config::kDefaultColumnHeaderSize));
-    fb2k_ui::AccentMode accentMode = static_cast<fb2k_ui::AccentMode>(
-        simplaylist_config::getConfigInt(
-            simplaylist_config::kHeaderAccentColor,
-            simplaylist_config::kDefaultHeaderAccentColor));
-    CGFloat headerHeight = fb2k_ui::headerHeight(headerSize);
+    CGFloat headerHeight = fb2k_ui::kDefaultHeaderHeight;
 
     // Update header bar properties and frames
-    _headerBar.headerSize = headerSize;
-    _headerBar.accentMode = accentMode;
+    _headerBar.headerHeight = headerHeight;
     CGFloat containerHeight = self.view.bounds.size.height;
     _headerBar.frame = NSMakeRect(0, containerHeight - headerHeight, self.view.bounds.size.width, headerHeight);
     _scrollView.frame = NSMakeRect(0, 0, self.view.bounds.size.width, containerHeight - headerHeight);
@@ -485,7 +472,11 @@ struct ReloadOperation {
     if (glassBackground != currentlyGlass) {
         NSView *newContainer;
         if (glassBackground) {
-            newContainer = fb2k_ui::createGlassContainer(self.view.frame);
+            NSVisualEffectView *effectView = [[NSVisualEffectView alloc] initWithFrame:self.view.frame];
+            effectView.material = NSVisualEffectMaterialSidebar;
+            effectView.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+            effectView.state = NSVisualEffectStateFollowsWindowActiveState;
+            newContainer = effectView;
         } else {
             newContainer = [[NSView alloc] initWithFrame:self.view.frame];
         }
@@ -502,7 +493,11 @@ struct ReloadOperation {
     }
     _headerBar.glassBackground = glassBackground;
     _playlistView.glassBackground = glassBackground;
-    fb2k_ui::configureScrollViewForGlass(_scrollView, glassBackground);
+    _scrollView.drawsBackground = !glassBackground;
+    _scrollView.contentView.drawsBackground = !glassBackground;
+    if (!glassBackground) {
+        _scrollView.backgroundColor = fb2k_ui::backgroundColor();
+    }
 
     // Reload group column width
     CGFloat newWidth = simplaylist_config::getConfigInt(
