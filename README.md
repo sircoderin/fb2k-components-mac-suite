@@ -169,16 +169,53 @@ Each effect registers as a separate DSP in foobar2000's chain (Preferences > Pla
 
 ## Building from Source
 
-Each extension can be built independently:
+### Prerequisites
+
+- Xcode (install from the App Store, then run `xcode-select --install`)
+- Ruby (bundled with macOS)
+
+### 1. Download and build the SDK
+
+The foobar2000 SDK is not included in this repository. Download it from
+[foobar2000.org/SDK](https://www.foobar2000.org/SDK) and extract it so the
+directory layout looks like this:
+
+```
+fb2k-components-mac-suite/
+└── SDK-2025-03-07/          # exact name must match the downloaded archive
+    ├── pfc/
+    ├── foobar2000/
+    │   ├── SDK/
+    │   ├── helpers/
+    │   ├── shared/
+    │   └── foobar2000_component_client/
+    └── ...
+```
+
+Then build the SDK libraries **in this order** (each must succeed before the next):
+
+```bash
+SDK=SDK-2025-03-07
+
+xcodebuild -project $SDK/pfc/pfc.xcodeproj                                                         -configuration Release
+xcodebuild -project $SDK/foobar2000/SDK/foobar2000_SDK.xcodeproj                                   -configuration Release
+xcodebuild -project $SDK/foobar2000/shared/shared.xcodeproj                                        -configuration Release
+xcodebuild -project $SDK/foobar2000/helpers/foobar2000_SDK_helpers.xcodeproj                       -configuration Release
+xcodebuild -project $SDK/foobar2000/foobar2000_component_client/foobar2000_component_client.xcodeproj -configuration Release
+```
+
+This only needs to be done once (or when the SDK version changes).
+
+### 2. Build a component
 
 ```bash
 cd extensions/foo_jl_<name>_mac  # e.g., foo_jl_simplaylist_mac
 ruby Scripts/generate_xcode_project.rb
-./Scripts/build.sh
+./Scripts/build.sh          # --release is the default; use --debug for a debug build
 ./Scripts/install.sh
 ```
 
-Or build all extensions:
+Or build all extensions at once:
 
 ```bash
 ./Scripts/build_all.sh [--clean] [--install]
