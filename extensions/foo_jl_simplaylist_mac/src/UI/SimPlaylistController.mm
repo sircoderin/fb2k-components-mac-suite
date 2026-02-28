@@ -19,7 +19,9 @@
 
 #include <SDK/menu_helpers.h>
 #include <atomic>
+#include <numeric>
 #include <set>
+#include <tuple>
 #include <vector>
 
 // =============================================================================
@@ -173,10 +175,43 @@ public:
         if (items.get_count() > 0) {
             auto pm = playlist_manager::get();
             if (m_playlistIndex < pm->get_playlist_count()) {
-                // Sort items by path for proper track ordering
-                // (process_locations_async doesn't preserve order for folder drops)
-                metadb_handle_list sortedItems(items);
-                sortedItems.sort_by_path();
+                // Sort by (album artist, album, tracknumber-as-integer, path fallback).
+                // Track number is parsed as an integer so ordering is 1, 2 ... 12, 13.
+                // Path is a tiebreaker for tracks with no track number metadata.
+                metadb_handle_list itemsCopy(items);
+                t_size count = itemsCopy.get_count();
+
+                auto albumArtistScript = simplaylist::TitleFormatHelper::compileWithCache("%album artist%");
+                auto albumScript       = simplaylist::TitleFormatHelper::compileWithCache("%album%");
+                auto trackNumScript    = simplaylist::TitleFormatHelper::compileWithCache("%tracknumber%");
+                auto pathScript        = simplaylist::TitleFormatHelper::compileWithCache("%path_sort%");
+
+                // Build sort keys once per track to avoid repeated formatting
+                using SortKey = std::tuple<std::string, std::string, int, std::string>;
+                std::vector<SortKey> keys;
+                keys.reserve(count);
+                for (t_size i = 0; i < count; i++) {
+                    auto h = itemsCopy.get_item(i);
+                    std::string albumArtist = simplaylist::TitleFormatHelper::format(h, albumArtistScript);
+                    std::string album       = simplaylist::TitleFormatHelper::format(h, albumScript);
+                    std::string trackStr    = simplaylist::TitleFormatHelper::format(h, trackNumScript);
+                    std::string path        = simplaylist::TitleFormatHelper::format(h, pathScript);
+                    int trackNum = trackStr.empty() ? 0 : std::atoi(trackStr.c_str());
+                    keys.emplace_back(std::move(albumArtist), std::move(album), trackNum, std::move(path));
+                }
+
+                // Sort indices by key; stable_sort preserves original order for equal keys
+                std::vector<t_size> order(count);
+                std::iota(order.begin(), order.end(), 0);
+                std::stable_sort(order.begin(), order.end(), [&](t_size a, t_size b) {
+                    return keys[a] < keys[b];
+                });
+
+                metadb_handle_list sortedItems;
+                sortedItems.prealloc(count);
+                for (t_size i : order) {
+                    sortedItems.add_item(itemsCopy.get_item(i));
+                }
 
                 pm->playlist_undo_backup(m_playlistIndex);
                 // Clear existing selection before inserting new items
