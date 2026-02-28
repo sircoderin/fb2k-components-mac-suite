@@ -205,9 +205,12 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     using namespace simplaylist_config;
     _displaySize = getConfigInt(kDisplaySize, kDefaultDisplaySize);
 
-    // Row height from shared UIStyles
-    fb2k_ui::SizeVariant size = static_cast<fb2k_ui::SizeVariant>(_displaySize);
-    _rowHeight = fb2k_ui::rowHeight(size);
+    // Row height based on display size: 0=Compact, 1=Normal, 2=Large
+    switch (_displaySize) {
+        case 0:  _rowHeight = 19.0; break;  // Compact
+        case 2:  _rowHeight = 26.0; break;  // Large
+        default: _rowHeight = 22.0; break;  // Normal
+    }
 
     _subgroupHeight = getConfigInt(kSubgroupHeight, kDefaultSubgroupHeight);
     _groupColumnWidth = getConfigInt(kGroupColumnWidth, kDefaultGroupColumnWidth);
@@ -1148,9 +1151,14 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     NSColor *textColor = selected ? fb2k_ui::selectedTextColor() : fb2k_ui::textColor();
     NSColor *dimmedColor = selected ? [fb2k_ui::selectedTextColor() colorWithAlphaComponent:0.5]
                                     : fb2k_ui::secondaryTextColor();
-    // Font size from shared UIStyles
-    fb2k_ui::SizeVariant size = static_cast<fb2k_ui::SizeVariant>(_displaySize);
-    NSFont *font = fb2k_ui::rowFont(size);
+    // Font size based on display size: 0=Compact, 1=Normal, 2=Large
+    CGFloat fontSize;
+    switch (_displaySize) {
+        case 0:  fontSize = 12.0; break;  // Compact
+        case 2:  fontSize = 14.0; break;  // Large
+        default: fontSize = 13.0; break;  // Normal
+    }
+    NSFont *font = [NSFont systemFontOfSize:fontSize];
 
     // Calculate vertical centering with equal top/bottom padding
     CGFloat textHeight = font.ascender - font.descender;
