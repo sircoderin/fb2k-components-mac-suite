@@ -28,6 +28,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)handleFocusChanged:(NSInteger)from to:(NSInteger)to;
 - (void)handleItemsModified;
 
+// Scroll/visibility event handlers
+- (void)handleEnsureVisible:(NSInteger)playlistIndex;
+
 // Playback event handlers
 - (void)handlePlaybackNewTrack:(metadb_handle_ptr)track;
 - (void)handlePlaybackStopped;

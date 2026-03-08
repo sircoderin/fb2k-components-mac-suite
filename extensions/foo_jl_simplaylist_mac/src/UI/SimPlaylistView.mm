@@ -844,11 +844,12 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     }
 
     // STEP 2: Draw only visible rows (typically ~30 rows)
+    // Draw all rows in range without dirtyRect filtering — the row range is already
+    // bounded to visible rows (±1 buffer), and skipping the intersection test prevents
+    // sub-pixel boundary mismatches that can leave unrendered strips at scroll edges.
     for (NSInteger row = firstRow; row <= lastRow; row++) {
         NSRect rowRect = [self rectForRow:row];
-        if (NSIntersectsRect(rowRect, dirtyRect)) {
-            [self drawSparseRow:row inRect:rowRect];
-        }
+        [self drawSparseRow:row inRect:rowRect];
     }
 
     // STEP 3: Draw album art on top (after all row content)
@@ -1279,9 +1280,6 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         CGFloat artX = (_groupColumnWidth - artSize) / 2;  // Center horizontally
         if (artX < padding) artX = padding;
         NSRect artRect = NSMakeRect(artX, artY, artSize, artSize);
-
-        // Skip if rect not visible
-        if (!NSIntersectsRect(artRect, dirtyRect)) continue;
 
         // Get album art from cache or delegate
         NSImage *albumArt = nil;
@@ -2420,6 +2418,30 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
 #pragma mark - Keyboard Events
 
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    NSUInteger modifiers = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    NSString *chars = event.charactersIgnoringModifiers;
+    if (chars.length > 0 && modifiers == NSEventModifierFlagCommand) {
+        unichar key = [chars characterAtIndex:0];
+        if (key == 'f' || key == 'F') {
+            // Cmd+F: find and invoke the Search menu item in foobar2000's Edit menu
+            NSMenu *mainMenu = [NSApp mainMenu];
+            for (NSMenuItem *topItem in mainMenu.itemArray) {
+                NSMenu *submenu = topItem.submenu;
+                if (!submenu) continue;
+                for (NSMenuItem *item in submenu.itemArray) {
+                    if ([item.title localizedCaseInsensitiveContainsString:@"search"] && item.action) {
+                        [NSApp sendAction:item.action to:item.target from:item];
+                        return YES;
+                    }
+                }
+            }
+            return NO;
+        }
+    }
+    return [super performKeyEquivalent:event];
+}
+
 - (void)keyDown:(NSEvent *)event {
     NSString *chars = event.charactersIgnoringModifiers;
     NSUInteger modifiers = event.modifierFlags;
@@ -2484,6 +2506,15 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         default:
             if (hasCmd && (key == 'a' || key == 'A')) {
                 [self selectAll];
+            } else if (!hasCmd && (key == 'q' || key == 'Q')) {
+                // Q: queue hovered track
+                if (_hoveredRow >= 0) {
+                    NSInteger playlistIndex = [self playlistIndexForRow:_hoveredRow];
+                    if (playlistIndex >= 0 &&
+                        [_delegate respondsToSelector:@selector(playlistView:didRequestQueueTrack:)]) {
+                        [_delegate playlistView:self didRequestQueueTrack:playlistIndex];
+                    }
+                }
             } else {
                 [super keyDown:event];
             }
