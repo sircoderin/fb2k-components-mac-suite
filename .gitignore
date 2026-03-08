@@ -58,8 +58,7 @@ sdk_config.sh
 # Settings backups (for clean install testing)
 .settings_backups/
 
-# Worktree-specific files (component instructions)
+# Worktree-specific files
 BACKLOG.md
-CLAUDE.md
 # Local development symlinks
 extensions/*/src/Integration/JLConstraintDebugger.*
