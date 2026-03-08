@@ -99,6 +99,16 @@ void SimPlaylistCallbackManager::onItemsModified() {
     });
 }
 
+void SimPlaylistCallbackManager::onEnsureVisible(t_size idx) {
+    NSInteger i = idx;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        std::lock_guard<std::mutex> lock(g_controllersMutex);
+        for (SimPlaylistController *c in g_controllers) {
+            [c handleEnsureVisible:i];
+        }
+    });
+}
+
 void SimPlaylistCallbackManager::onPlaybackNewTrack(metadb_handle_ptr track) {
     dispatch_async(dispatch_get_main_queue(), ^{
         std::lock_guard<std::mutex> lock(g_controllersMutex);
@@ -165,6 +175,10 @@ public:
 
     void on_playlist_switch() override {
         SimPlaylistCallbackManager::instance().onPlaylistSwitched();
+    }
+
+    void on_item_ensure_visible(t_size p_idx) override {
+        SimPlaylistCallbackManager::instance().onEnsureVisible(p_idx);
     }
 };
 

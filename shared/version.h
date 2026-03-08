@@ -6,8 +6,8 @@
 //
 
 // Simple Playlist
-#define SIMPLAYLIST_VERSION "1.4.1"
-#define SIMPLAYLIST_VERSION_INT 141
+#define SIMPLAYLIST_VERSION "1.4.2"
+#define SIMPLAYLIST_VERSION_INT 142
 
 // Playlist Organizer
 #define PLORG_VERSION "1.3.0"

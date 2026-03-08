@@ -143,6 +143,9 @@ extern NSPasteboardType const SimPlaylistPasteboardType;
 // Called when user presses delete key
 - (void)playlistViewDidRequestRemoveSelection:(SimPlaylistView *)view;
 
+// Called when user presses Q to queue a track under the cursor
+- (void)playlistView:(SimPlaylistView *)view didRequestQueueTrack:(NSInteger)playlistIndex;
+
 // Called to request album art for a group (returns cached image or nil, triggers async load)
 - (nullable NSImage *)playlistView:(SimPlaylistView *)view albumArtForGroupAtPlaylistIndex:(NSInteger)playlistIndex;
 

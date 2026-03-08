@@ -369,21 +369,27 @@ struct ReloadOperation {
     BOOL glassBackground = simplaylist_config::getConfigBool(
         simplaylist_config::kGlassBackground,
         simplaylist_config::kDefaultGlassBackground);
-    // Create container view - glass uses NSVisualEffectView for transparency
+    fb2k_ui::SizeVariant headerSize = static_cast<fb2k_ui::SizeVariant>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kColumnHeaderSize,
+            simplaylist_config::kDefaultColumnHeaderSize));
+    fb2k_ui::AccentMode accentMode = static_cast<fb2k_ui::AccentMode>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kHeaderAccentColor,
+            simplaylist_config::kDefaultHeaderAccentColor));
+
+    // Create container view - use glass helper for transparent mode
     NSView *container;
     if (glassBackground) {
-        NSVisualEffectView *effectView = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
-        effectView.material = NSVisualEffectMaterialSidebar;
-        effectView.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-        effectView.state = NSVisualEffectStateFollowsWindowActiveState;
-        container = effectView;
+        container = fb2k_ui::createGlassContainer(NSMakeRect(0, 0, 400, 300));
     } else {
         container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
     }
     container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.view = container;
 
-    CGFloat headerHeight = fb2k_ui::kDefaultHeaderHeight;
+    // Header height from shared UIStyles
+    CGFloat headerHeight = fb2k_ui::headerHeight(headerSize);
     CGFloat containerHeight = 300;
 
     // Create header bar at TOP (in non-flipped view, y increases upward)
@@ -394,7 +400,8 @@ struct ReloadOperation {
     _headerBar.groupColumnWidth = simplaylist_config::getConfigInt(
         simplaylist_config::kGroupColumnWidth,
         simplaylist_config::kDefaultGroupColumnWidth);
-    _headerBar.headerHeight = headerHeight;
+    _headerBar.headerSize = headerSize;
+    _headerBar.accentMode = accentMode;
     _headerBar.glassBackground = glassBackground;
     [container addSubview:_headerBar];
 
@@ -422,11 +429,7 @@ struct ReloadOperation {
 
     // Configure scroll view and set document view
     _scrollView.documentView = _playlistView;
-    _scrollView.drawsBackground = !glassBackground;
-    _scrollView.contentView.drawsBackground = !glassBackground;
-    if (!glassBackground) {
-        _scrollView.backgroundColor = fb2k_ui::backgroundColor();
-    }
+    fb2k_ui::configureScrollViewForGlass(_scrollView, glassBackground);
     [container addSubview:_scrollView];
 
     // Observe scroll changes to sync header
@@ -491,10 +494,20 @@ struct ReloadOperation {
         _activePresetIndex = 0;
     }
 
-    CGFloat headerHeight = fb2k_ui::kDefaultHeaderHeight;
+    // Reload header size and accent mode from config
+    fb2k_ui::SizeVariant headerSize = static_cast<fb2k_ui::SizeVariant>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kColumnHeaderSize,
+            simplaylist_config::kDefaultColumnHeaderSize));
+    fb2k_ui::AccentMode accentMode = static_cast<fb2k_ui::AccentMode>(
+        simplaylist_config::getConfigInt(
+            simplaylist_config::kHeaderAccentColor,
+            simplaylist_config::kDefaultHeaderAccentColor));
+    CGFloat headerHeight = fb2k_ui::headerHeight(headerSize);
 
     // Update header bar properties and frames
-    _headerBar.headerHeight = headerHeight;
+    _headerBar.headerSize = headerSize;
+    _headerBar.accentMode = accentMode;
     CGFloat containerHeight = self.view.bounds.size.height;
     _headerBar.frame = NSMakeRect(0, containerHeight - headerHeight, self.view.bounds.size.width, headerHeight);
     _scrollView.frame = NSMakeRect(0, 0, self.view.bounds.size.width, containerHeight - headerHeight);
@@ -507,11 +520,7 @@ struct ReloadOperation {
     if (glassBackground != currentlyGlass) {
         NSView *newContainer;
         if (glassBackground) {
-            NSVisualEffectView *effectView = [[NSVisualEffectView alloc] initWithFrame:self.view.frame];
-            effectView.material = NSVisualEffectMaterialSidebar;
-            effectView.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-            effectView.state = NSVisualEffectStateFollowsWindowActiveState;
-            newContainer = effectView;
+            newContainer = fb2k_ui::createGlassContainer(self.view.frame);
         } else {
             newContainer = [[NSView alloc] initWithFrame:self.view.frame];
         }
@@ -528,11 +537,7 @@ struct ReloadOperation {
     }
     _headerBar.glassBackground = glassBackground;
     _playlistView.glassBackground = glassBackground;
-    _scrollView.drawsBackground = !glassBackground;
-    _scrollView.contentView.drawsBackground = !glassBackground;
-    if (!glassBackground) {
-        _scrollView.backgroundColor = fb2k_ui::backgroundColor();
-    }
+    fb2k_ui::configureScrollViewForGlass(_scrollView, glassBackground);
 
     // Reload group column width
     CGFloat newWidth = simplaylist_config::getConfigInt(
@@ -715,6 +720,12 @@ struct ReloadOperation {
 
     // Reset initialized flag for the new playlist
     _currentPlaylistInitialized = NO;
+
+    // Invalidate any in-progress async group detection from the previous playlist.
+    // Without this, switching to an ungrouped/empty playlist (which doesn't start
+    // its own detection) leaves the generation counter unchanged, allowing stale
+    // callbacks to apply old group data to the new playlist's view.
+    ++_groupDetectionGeneration;
 
     // Clear cached data on any playlist change
     // TODO: For incremental updates (add/remove), could invalidate only affected entries
@@ -1730,9 +1741,22 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
 }
 
 - (void)handleFocusChanged:(NSInteger)fromPlaylistIndex to:(NSInteger)toPlaylistIndex {
-    // In flat mode, focus index = playlist index
     _playlistView.focusIndex = toPlaylistIndex;
+    if (toPlaylistIndex >= 0) {
+        NSInteger row = [_playlistView rowForPlaylistIndex:toPlaylistIndex];
+        if (row >= 0) {
+            [_playlistView scrollRowToVisible:row];
+        }
+    }
     [_playlistView setNeedsDisplay:YES];
+}
+
+- (void)handleEnsureVisible:(NSInteger)playlistIndex {
+    if (playlistIndex < 0) return;
+    NSInteger row = [_playlistView rowForPlaylistIndex:playlistIndex];
+    if (row >= 0) {
+        [_playlistView scrollRowToVisible:row];
+    }
 }
 
 - (void)handleItemsModified {
@@ -1788,9 +1812,10 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
 }
 
 - (void)playlistView:(SimPlaylistView *)view didDoubleClickRow:(NSInteger)row {
+    if (_currentPlaylistIndex < 0) return;
+
     auto pm = playlist_manager::get();
-    t_size activePlaylist = pm->get_active_playlist();
-    if (activePlaylist == SIZE_MAX) return;
+    t_size activePlaylist = (t_size)_currentPlaylistIndex;
 
     // Get playlist index using the view's row mapping
     NSInteger playlistIndex = [view playlistIndexForRow:row];
@@ -2244,6 +2269,12 @@ static BOOL isRemotePath(const char *path) {
 - (void)performDelayedRedraw {
     _needsRedraw = NO;
     [_playlistView setNeedsDisplay:YES];
+}
+
+- (void)playlistView:(SimPlaylistView *)view didRequestQueueTrack:(NSInteger)playlistIndex {
+    if (_currentPlaylistIndex < 0 || playlistIndex < 0) return;
+    auto pm = playlist_manager::get();
+    pm->queue_add_item_playlist((t_size)_currentPlaylistIndex, (t_size)playlistIndex);
 }
 
 - (void)playlistView:(SimPlaylistView *)view didChangeGroupColumnWidth:(CGFloat)newWidth {

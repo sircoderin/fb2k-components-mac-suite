@@ -205,12 +205,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     using namespace simplaylist_config;
     _displaySize = getConfigInt(kDisplaySize, kDefaultDisplaySize);
 
-    // Row height based on display size: 0=Compact, 1=Normal, 2=Large
-    switch (_displaySize) {
-        case 0:  _rowHeight = 19.0; break;  // Compact
-        case 2:  _rowHeight = 26.0; break;  // Large
-        default: _rowHeight = 22.0; break;  // Normal
-    }
+    // Row height from shared UIStyles
+    fb2k_ui::SizeVariant size = static_cast<fb2k_ui::SizeVariant>(_displaySize);
+    _rowHeight = fb2k_ui::rowHeight(size);
 
     _subgroupHeight = getConfigInt(kSubgroupHeight, kDefaultSubgroupHeight);
     _groupColumnWidth = getConfigInt(kGroupColumnWidth, kDefaultGroupColumnWidth);
@@ -837,17 +834,16 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     if (firstRow < 0) firstRow = 0;
     if (lastRow < 0 || lastRow >= totalRows) lastRow = totalRows - 1;
 
-    // Add small buffer for smooth scrolling
-    firstRow = MAX(0, firstRow - 1);
-    lastRow = MIN(totalRows - 1, lastRow + 1);
-
     // STEP 1: Fill group column background FIRST (before any content)
     // This ensures header text drawn later won't be covered
     if (_groupColumnWidth > 0 && _groupStarts.count > 0) {
         [self fillGroupColumnBackgroundInRect:dirtyRect];
     }
 
-    // STEP 2: Draw rows in the dirty range
+    // STEP 2: Draw only visible rows (typically ~30 rows)
+    // Draw all rows in range without dirtyRect filtering — the row range is already
+    // bounded to visible rows (±1 buffer), and skipping the intersection test prevents
+    // sub-pixel boundary mismatches that can leave unrendered strips at scroll edges.
     for (NSInteger row = firstRow; row <= lastRow; row++) {
         NSRect rowRect = [self rectForRow:row];
         [self drawSparseRow:row inRect:rowRect];
@@ -1150,14 +1146,9 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     NSColor *textColor = selected ? fb2k_ui::selectedTextColor() : fb2k_ui::textColor();
     NSColor *dimmedColor = selected ? [fb2k_ui::selectedTextColor() colorWithAlphaComponent:0.5]
                                     : fb2k_ui::secondaryTextColor();
-    // Font size based on display size: 0=Compact, 1=Normal, 2=Large
-    CGFloat fontSize;
-    switch (_displaySize) {
-        case 0:  fontSize = 12.0; break;  // Compact
-        case 2:  fontSize = 14.0; break;  // Large
-        default: fontSize = 13.0; break;  // Normal
-    }
-    NSFont *font = [NSFont systemFontOfSize:fontSize];
+    // Font size from shared UIStyles
+    fb2k_ui::SizeVariant size = static_cast<fb2k_ui::SizeVariant>(_displaySize);
+    NSFont *font = fb2k_ui::rowFont(size);
 
     // Calculate vertical centering with equal top/bottom padding
     CGFloat textHeight = font.ascender - font.descender;
@@ -1286,9 +1277,6 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         CGFloat artX = (_groupColumnWidth - artSize) / 2;  // Center horizontally
         if (artX < padding) artX = padding;
         NSRect artRect = NSMakeRect(artX, artY, artSize, artSize);
-
-        // Skip if rect not visible
-        if (!NSIntersectsRect(artRect, dirtyRect)) continue;
 
         // Get album art from cache or delegate
         NSImage *albumArt = nil;
@@ -2427,6 +2415,30 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 
 #pragma mark - Keyboard Events
 
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    NSUInteger modifiers = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+    NSString *chars = event.charactersIgnoringModifiers;
+    if (chars.length > 0 && modifiers == NSEventModifierFlagCommand) {
+        unichar key = [chars characterAtIndex:0];
+        if (key == 'f' || key == 'F') {
+            // Cmd+F: find and invoke the Search menu item in foobar2000's Edit menu
+            NSMenu *mainMenu = [NSApp mainMenu];
+            for (NSMenuItem *topItem in mainMenu.itemArray) {
+                NSMenu *submenu = topItem.submenu;
+                if (!submenu) continue;
+                for (NSMenuItem *item in submenu.itemArray) {
+                    if ([item.title localizedCaseInsensitiveContainsString:@"search"] && item.action) {
+                        [NSApp sendAction:item.action to:item.target from:item];
+                        return YES;
+                    }
+                }
+            }
+            return NO;
+        }
+    }
+    return [super performKeyEquivalent:event];
+}
+
 - (void)keyDown:(NSEvent *)event {
     NSString *chars = event.charactersIgnoringModifiers;
     NSUInteger modifiers = event.modifierFlags;
@@ -2489,6 +2501,15 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         default:
             if (hasCmd && (key == 'a' || key == 'A')) {
                 [self selectAll];
+            } else if (!hasCmd && (key == 'q' || key == 'Q')) {
+                // Q: queue hovered track
+                if (_hoveredRow >= 0) {
+                    NSInteger playlistIndex = [self playlistIndexForRow:_hoveredRow];
+                    if (playlistIndex >= 0 &&
+                        [_delegate respondsToSelector:@selector(playlistView:didRequestQueueTrack:)]) {
+                        [_delegate playlistView:self didRequestQueueTrack:playlistIndex];
+                    }
+                }
             } else {
                 [super keyDown:event];
             }
