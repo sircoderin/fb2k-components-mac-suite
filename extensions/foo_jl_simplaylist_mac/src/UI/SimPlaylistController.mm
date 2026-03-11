@@ -716,6 +716,12 @@ struct ReloadOperation {
     // Reset initialized flag for the new playlist
     _currentPlaylistInitialized = NO;
 
+    // Invalidate any in-progress async group detection from the previous playlist.
+    // Without this, switching to an ungrouped/empty playlist (which doesn't start
+    // its own detection) leaves the generation counter unchanged, allowing stale
+    // callbacks to apply old group data to the new playlist's view.
+    ++_groupDetectionGeneration;
+
     // Clear cached data on any playlist change
     // TODO: For incremental updates (add/remove), could invalidate only affected entries
     [_playlistView clearFormattedValuesCache];
@@ -1730,9 +1736,22 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
 }
 
 - (void)handleFocusChanged:(NSInteger)fromPlaylistIndex to:(NSInteger)toPlaylistIndex {
-    // In flat mode, focus index = playlist index
     _playlistView.focusIndex = toPlaylistIndex;
+    if (toPlaylistIndex >= 0) {
+        NSInteger row = [_playlistView rowForPlaylistIndex:toPlaylistIndex];
+        if (row >= 0) {
+            [_playlistView scrollRowToVisible:row];
+        }
+    }
     [_playlistView setNeedsDisplay:YES];
+}
+
+- (void)handleEnsureVisible:(NSInteger)playlistIndex {
+    if (playlistIndex < 0) return;
+    NSInteger row = [_playlistView rowForPlaylistIndex:playlistIndex];
+    if (row >= 0) {
+        [_playlistView scrollRowToVisible:row];
+    }
 }
 
 - (void)handleItemsModified {
@@ -1788,9 +1807,10 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
 }
 
 - (void)playlistView:(SimPlaylistView *)view didDoubleClickRow:(NSInteger)row {
+    if (_currentPlaylistIndex < 0) return;
+
     auto pm = playlist_manager::get();
-    t_size activePlaylist = pm->get_active_playlist();
-    if (activePlaylist == SIZE_MAX) return;
+    t_size activePlaylist = (t_size)_currentPlaylistIndex;
 
     // Get playlist index using the view's row mapping
     NSInteger playlistIndex = [view playlistIndexForRow:row];
@@ -2244,6 +2264,12 @@ static BOOL isRemotePath(const char *path) {
 - (void)performDelayedRedraw {
     _needsRedraw = NO;
     [_playlistView setNeedsDisplay:YES];
+}
+
+- (void)playlistView:(SimPlaylistView *)view didRequestQueueTrack:(NSInteger)playlistIndex {
+    if (_currentPlaylistIndex < 0 || playlistIndex < 0) return;
+    auto pm = playlist_manager::get();
+    pm->queue_add_item_playlist((t_size)_currentPlaylistIndex, (t_size)playlistIndex);
 }
 
 - (void)playlistView:(SimPlaylistView *)view didChangeGroupColumnWidth:(CGFloat)newWidth {

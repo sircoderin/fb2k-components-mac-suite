@@ -2,6 +2,18 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.4.2] - 2026-03-08
+
+### Added
+- **Cmd+F opens playlist search**: Press Cmd+F while the playlist is focused to invoke foobar2000's search dialog.
+- **Q key queues hovered track**: Press Q while hovering over a track to add it to the playback queue.
+
+### Fixed
+- **Unrendered strips at top/bottom when scrolling**: The last album group could appear partially blank when scrolled to the edge of the playlist. Clicking into the area would fix it. Caused by sub-pixel rounding in dirty rect calculations during scroll.
+- **Album art and group headers leaking between playlists**: Switching from a playlist with album art to one without could show stale album art and phantom group headers from the previous playlist.
+- **Search results not scrolling into view**: Finding a track via playlist search now scrolls to and focuses the result.
+- **Playing wrong track from search**: Double-clicking a search result could play a track from the wrong playlist.
+
 ## [1.4.0] - 2026-02-10
 
 ### Added

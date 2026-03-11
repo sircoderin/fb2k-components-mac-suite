@@ -28,6 +28,7 @@ public:
     void onSelectionChanged();
     void onFocusChanged(t_size from, t_size to);
     void onItemsModified();
+    void onEnsureVisible(t_size idx);
 
     // Playback event dispatch
     void onPlaybackNewTrack(metadb_handle_ptr track);
