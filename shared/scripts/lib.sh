@@ -100,32 +100,63 @@ do_build() {
     # Build with xcodebuild
     # SYMROOT forces output to local build/ instead of DerivedData
     print_status "Building with xcodebuild..."
+
+    local build_log="$BUILD_DIR/build.log"
+
+    set +e
     xcodebuild -project "$PROJECT_NAME.xcodeproj" \
                -target "$PROJECT_NAME" \
                -configuration "$BUILD_CONFIG" \
                SYMROOT="$BUILD_DIR" \
                build \
-               2>&1 | grep -E "^(Build|Compile|Ld|Create|Touch|\*\*|error:|warning:)" || true
+               > "$build_log" 2>&1
+    local build_exit=$?
+    set -e
 
-    # Check build result
-    if [ -d "$COMPONENT_PATH" ]; then
-        print_success "Build succeeded!"
-        print_info "Output: $COMPONENT_PATH"
+    # Show filtered build progress
+    grep -E "^(Compile|Ld|Create|Touch|warning:)" "$build_log" || true
 
-        # Show binary info
-        local binary_path="$COMPONENT_PATH/Contents/MacOS/$PROJECT_NAME"
-        if [ -f "$binary_path" ]; then
-            local size=$(du -h "$binary_path" | cut -f1)
-            local archs=$(file "$binary_path" | grep -oE "(x86_64|arm64)" | tr '\n' ' ')
-            print_info "Size: $size"
-            print_info "Architectures: $archs"
-        fi
-        return 0
-    else
-        print_error "Build failed!"
-        print_error "Expected output at: $COMPONENT_PATH"
+    # Check xcodebuild exit code first (don't rely on stale output directory)
+    if [ $build_exit -ne 0 ]; then
+        echo ""
+        print_error "========================================="
+        print_error "  BUILD FAILED (exit code: $build_exit)"
+        print_error "========================================="
+        echo ""
+        grep -E "(error:|fatal error:|BUILD FAILED)" "$build_log" || true
+        echo ""
+        print_error "Last 20 lines of build log:"
+        tail -20 "$build_log"
+        echo ""
+        print_error "Full log: $build_log"
         return 1
     fi
+
+    # Verify the output actually exists
+    if [ ! -d "$COMPONENT_PATH" ]; then
+        echo ""
+        print_error "========================================="
+        print_error "  BUILD FAILED"
+        print_error "========================================="
+        print_error "xcodebuild exited 0 but output not found at: $COMPONENT_PATH"
+        return 1
+    fi
+
+    echo ""
+    print_success "========================================="
+    print_success "  BUILD SUCCEEDED"
+    print_success "========================================="
+    print_info "Output: $COMPONENT_PATH"
+
+    # Show binary info
+    local binary_path="$COMPONENT_PATH/Contents/MacOS/$PROJECT_NAME"
+    if [ -f "$binary_path" ]; then
+        local size=$(du -h "$binary_path" | cut -f1)
+        local archs=$(file "$binary_path" | grep -oE "(x86_64|arm64)" | tr '\n' ' ')
+        print_info "Size: $size"
+        print_info "Architectures: $archs"
+    fi
+    return 0
 }
 
 # Install the component to foobar2000
