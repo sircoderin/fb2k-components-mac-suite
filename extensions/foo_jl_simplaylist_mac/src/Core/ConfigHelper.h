@@ -170,7 +170,7 @@ inline const char* getDefaultGroupPresetsJSON() {
       "name": "Artist - album / cover",
       "sorting_pattern": "%path_sort%",
       "header": {
-        "pattern": "[%album artist% - ]['['%date%']' ][%album%]",
+        "pattern": "[%album artist% - ]['['$year(%date%)']' ][%album%]",
         "display": "text"
       },
       "group_column": {
