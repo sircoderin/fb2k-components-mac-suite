@@ -2743,18 +2743,19 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
                 }
             }
         } else {
-            // Different playlist - use paths to move/copy items
-            if (paths && paths.count > 0 && rowNumbers && rowNumbers.count > 0) {
-                // Build source indices from row numbers
+            // Different playlist or library source - use paths to move/copy items
+            if (paths && paths.count > 0) {
                 NSMutableIndexSet *sourceIndices = [NSMutableIndexSet indexSet];
                 for (NSNumber *num in rowNumbers) {
                     [sourceIndices addIndex:[num unsignedIntegerValue]];
                 }
 
-                // Get operation from modifier keys (same check as draggingUpdated)
                 BOOL optionKeyHeld = ([NSEvent modifierFlags] & NSEventModifierFlagOption) != 0;
-                NSDragOperation operation = optionKeyHeld ? NSDragOperationCopy : NSDragOperationMove;
+                // Library drops (no source indices) are always copy operations
+                BOOL isLibraryDrop = (sourceIndices.count == 0);
+                NSDragOperation operation = (optionKeyHeld || isLibraryDrop) ? NSDragOperationCopy : NSDragOperationMove;
                 FB2K_console_formatter() << "[SimPlaylist] Cross-playlist drop: optionKey=" << (optionKeyHeld ? "YES" : "NO")
+                                         << ", libraryDrop=" << (isLibraryDrop ? "YES" : "NO")
                                          << ", operation=" << (int)operation
                                          << " (Move=" << (int)NSDragOperationMove << ", Copy=" << (int)NSDragOperationCopy << ")";
 
