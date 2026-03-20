@@ -48,3 +48,7 @@
 // LibVanced (Library Browser)
 #define LIBVANCED_VERSION "1.0.0"
 #define LIBVANCED_VERSION_INT 100
+
+// LibUI
+#define LIBUI_VERSION "1.0.0"
+#define LIBUI_VERSION_INT 100
