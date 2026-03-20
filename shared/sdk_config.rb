@@ -82,7 +82,8 @@ module Fb2kVersions
     "biography" => "BIOGRAPHY_VERSION",
     "queue_manager" => "QUEUE_MANAGER_VERSION",
     "queue" => "QUEUE_MANAGER_VERSION",
-    "libvanced" => "LIBVANCED_VERSION"
+    "libvanced" => "LIBVANCED_VERSION",
+    "playvanced" => "PLAYVANCED_VERSION"
   }
 
   # Parse version.h and extract versions
