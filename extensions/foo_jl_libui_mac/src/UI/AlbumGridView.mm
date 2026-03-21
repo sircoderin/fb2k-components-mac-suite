@@ -39,6 +39,11 @@ static inline CGFloat cellWidth(CGFloat viewWidth, NSInteger cols) {
     // Drag state
     NSPoint   _mouseDownPoint;
     BOOL      _dragInitiated;
+
+    // Delayed expand/collapse (to avoid expand on double-click)
+    NSTimer  *_expandTimer;
+    NSInteger _pendingExpandAlbumIndex;
+    BOOL      _pendingExpandShouldCollapse;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -49,6 +54,7 @@ static inline CGFloat cellWidth(CGFloat viewWidth, NSInteger cols) {
         _selectedTrackIndex = NSNotFound;
         _expandedAlbumIndex = NSNotFound;
         _hoveredAlbumIndex = NSNotFound;
+        _pendingExpandAlbumIndex = NSNotFound;
         _albums = @[];
         self.wantsLayer = YES;
     }
@@ -476,14 +482,48 @@ typedef struct {
 
 #pragma mark - Mouse events
 
+- (void)_cancelExpandTimer {
+    [_expandTimer invalidate];
+    _expandTimer = nil;
+    _pendingExpandAlbumIndex = NSNotFound;
+}
+
+- (void)_performPendingExpand:(NSTimer *)timer {
+    _expandTimer = nil;
+    NSInteger albumIndex = _pendingExpandAlbumIndex;
+    BOOL shouldCollapse  = _pendingExpandShouldCollapse;
+    _pendingExpandAlbumIndex = NSNotFound;
+
+    if (albumIndex == NSNotFound) return;
+
+    if (shouldCollapse) {
+        [self collapseExpandedAlbum];
+        _selectedAlbumIndex = albumIndex;
+        [self setNeedsDisplay:YES];
+    } else {
+        _selectedAlbumIndex = albumIndex;
+        _selectedTrackIndex = NSNotFound;
+        _expandedAlbumIndex = albumIndex;
+        [self reloadData];
+        [self scrollTrackListIntoView];
+    }
+}
+
 - (void)mouseDown:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     _mouseDownPoint = point;
     _dragInitiated = NO;
 
+    // Double-click: cancel any pending expand and let mouseUp handle playback
+    if (event.clickCount == 2) {
+        [self _cancelExpandTimer];
+        return;
+    }
+
     GridHitResult hit = [self hitTestAtPoint:point];
 
     if (hit.albumIndex == NSNotFound) {
+        [self _cancelExpandTimer];
         _selectedAlbumIndex = NSNotFound;
         _selectedTrackIndex = NSNotFound;
         if (_expandedAlbumIndex != NSNotFound) {
@@ -495,26 +535,26 @@ typedef struct {
     }
 
     if (hit.trackIndex != NSNotFound) {
+        [self _cancelExpandTimer];
         _selectedAlbumIndex = hit.albumIndex;
         _selectedTrackIndex = hit.trackIndex;
         [self setNeedsDisplay:YES];
         return;
     }
 
-    // Clicked on an album cell
-    if (hit.albumIndex == _expandedAlbumIndex) {
-        [self collapseExpandedAlbum];
-        _selectedAlbumIndex = hit.albumIndex;
-        [self setNeedsDisplay:YES];
-    } else {
-        _selectedAlbumIndex = hit.albumIndex;
-        _selectedTrackIndex = NSNotFound;
-        _expandedAlbumIndex = hit.albumIndex;
-        [self reloadData];
+    // Clicked on an album cell — select immediately, but delay expand/collapse
+    // so a fast double-click can cancel it before it fires
+    _selectedAlbumIndex = hit.albumIndex;
+    [self setNeedsDisplay:YES];
 
-        // Scroll to make the track list visible
-        [self scrollTrackListIntoView];
-    }
+    [self _cancelExpandTimer];
+    _pendingExpandAlbumIndex      = hit.albumIndex;
+    _pendingExpandShouldCollapse  = (hit.albumIndex == _expandedAlbumIndex);
+    _expandTimer = [NSTimer scheduledTimerWithTimeInterval:[NSEvent doubleClickInterval]
+                                                   target:self
+                                                 selector:@selector(_performPendingExpand:)
+                                                 userInfo:nil
+                                                  repeats:NO];
 }
 
 - (void)scrollTrackListIntoView {
