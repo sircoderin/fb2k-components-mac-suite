@@ -292,6 +292,9 @@ void QueueCallbackManager::restoreQueueState() {
                                 auto pc2 = playback_control::get();
                                 if (pc2->is_playing() && pc2->playback_can_seek()) {
                                     pc2->playback_seek(posToSeek);
+                                    // Store restored position so saveQueueState has it
+                                    // if the user closes again without playing.
+                                    QueueCallbackManager::instance().onPlaybackTime(posToSeek);
                                 }
                             } catch (...) {}
                         });
