@@ -21,6 +21,10 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
 @property (nonatomic, strong) NSButton *prevButton;
 @property (nonatomic, strong) NSButton *playPauseButton;
 @property (nonatomic, strong) NSButton *nextButton;
+@property (nonatomic, strong) NSButton *stopButton;
+@property (nonatomic, strong) NSButton *shuffleButton;
+@property (nonatomic, strong) NSButton *repeatButton;
+@property (nonatomic, strong) NSButton *muteButton;
 @property (nonatomic, strong) NSSlider *progressSlider;
 @property (nonatomic, strong) NSTextField *elapsedLabel;
 @property (nonatomic, strong) NSTextField *remainingLabel;
@@ -40,6 +44,7 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
         _isPlaying = NO;
         _isPaused = NO;
         _volume = 1.0;
+        _playbackOrder = 0;
         _isSeeking = NO;
         [self setupSubviews];
     }
@@ -84,6 +89,18 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
     _nextButton = [self makeTransportButton:@"forward.fill" size:kSmallButtonSize action:@selector(nextPressed:)];
     [self addSubview:_nextButton];
 
+    _stopButton = [self makeTransportButton:@"stop.fill" size:kSmallButtonSize action:@selector(stopPressed:)];
+    [self addSubview:_stopButton];
+
+    _shuffleButton = [self makeTransportButton:@"shuffle" size:kSmallButtonSize action:@selector(shufflePressed:)];
+    [self addSubview:_shuffleButton];
+
+    _repeatButton = [self makeTransportButton:@"repeat" size:kSmallButtonSize action:@selector(repeatPressed:)];
+    [self addSubview:_repeatButton];
+
+    _muteButton = [self makeTransportButton:@"speaker.wave.2.fill" size:kSmallButtonSize action:@selector(mutePressed:)];
+    [self addSubview:_muteButton];
+
     // Progress slider
     _progressSlider = [[NSSlider alloc] init];
     _progressSlider.translatesAutoresizingMaskIntoConstraints = NO;
@@ -124,6 +141,9 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
     [self addSubview:_idleLabel];
 
     [self registerForDraggedTypes:@[kSimPlaylistPBType, NSPasteboardTypeFileURL]];
+
+    [self updateMuteIcon];
+    [self updateShuffleRepeatButtons];
 }
 
 - (NSTextField *)makeLabel {
@@ -185,6 +205,8 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
 
     BOOL hasTrack = self.isPlaying || self.isPaused || self.trackInfo != nil;
 
+    BOOL showSecondary = (w >= 500);
+
     _idleLabel.hidden = hasTrack;
     _artworkView.hidden = !hasTrack;
     _titleLabel.hidden = !hasTrack;
@@ -192,6 +214,10 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
     _prevButton.hidden = !hasTrack;
     _playPauseButton.hidden = !hasTrack;
     _nextButton.hidden = !hasTrack;
+    _stopButton.hidden = !hasTrack;
+    _shuffleButton.hidden = !hasTrack || !showSecondary;
+    _repeatButton.hidden = !hasTrack || !showSecondary;
+    _muteButton.hidden = !hasTrack;
     _progressSlider.hidden = !hasTrack;
     _elapsedLabel.hidden = !hasTrack;
     _remainingLabel.hidden = !hasTrack;
@@ -218,24 +244,37 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
     _artistLabel.frame = NSMakeRect(x, midY + 2, textWidth, 14);
     x += textWidth + kPadding;
 
-    // Transport buttons
-    CGFloat btnGroupWidth = kSmallButtonSize + kButtonSpacing + kButtonSize + kButtonSpacing + kSmallButtonSize;
-    CGFloat btnX = x;
+    // Transport buttons: [Prev][Play/Pause][Next][Stop]
     CGFloat btnY = midY - kButtonSize / 2.0;
     CGFloat smallBtnY = midY - kSmallButtonSize / 2.0;
+    CGFloat btnX = x;
 
     _prevButton.frame = NSMakeRect(btnX, smallBtnY, kSmallButtonSize, kSmallButtonSize);
     btnX += kSmallButtonSize + kButtonSpacing;
     _playPauseButton.frame = NSMakeRect(btnX, btnY, kButtonSize, kButtonSize);
     btnX += kButtonSize + kButtonSpacing;
     _nextButton.frame = NSMakeRect(btnX, smallBtnY, kSmallButtonSize, kSmallButtonSize);
-    x += btnGroupWidth + kPadding * 2;
+    btnX += kSmallButtonSize + kButtonSpacing;
+    _stopButton.frame = NSMakeRect(btnX, smallBtnY, kSmallButtonSize, kSmallButtonSize);
+    btnX += kSmallButtonSize;
+    x = btnX + kPadding * 2;
 
-    // Volume slider (from right edge)
-    CGFloat volumeX = w - kPadding - kVolumeWidth;
-    _volumeSlider.frame = NSMakeRect(volumeX, midY - 10, kVolumeWidth, 20);
+    // Right-side controls: [Shuffle][Repeat][Mute][===volume===]
+    CGFloat rightX = w - kPadding;
+    rightX -= kVolumeWidth;
+    _volumeSlider.frame = NSMakeRect(rightX, midY - 10, kVolumeWidth, 20);
+    rightX -= kButtonSpacing + kSmallButtonSize;
+    _muteButton.frame = NSMakeRect(rightX, smallBtnY, kSmallButtonSize, kSmallButtonSize);
+    if (showSecondary) {
+        rightX -= kButtonSpacing * 3 + kSmallButtonSize;
+        _repeatButton.frame = NSMakeRect(rightX, smallBtnY, kSmallButtonSize, kSmallButtonSize);
+        rightX -= kButtonSpacing + kSmallButtonSize;
+        _shuffleButton.frame = NSMakeRect(rightX, smallBtnY, kSmallButtonSize, kSmallButtonSize);
+        rightX -= kPadding;
+    }
+    CGFloat volumeX = rightX; // used below as the right boundary of the progress area
 
-    // Progress area fills the remaining space
+    // Progress area fills the remaining space between transport and right controls
     CGFloat timeWidth = 38.0;
     CGFloat progressRight = volumeX - kPadding;
     CGFloat progressLeft = x;
@@ -350,6 +389,22 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
     [self.delegate nowPlayingViewDidPressNext];
 }
 
+- (void)stopPressed:(id)sender {
+    [self.delegate nowPlayingViewDidPressStop];
+}
+
+- (void)shufflePressed:(id)sender {
+    [self.delegate nowPlayingViewDidToggleShuffle];
+}
+
+- (void)repeatPressed:(id)sender {
+    [self.delegate nowPlayingViewDidCycleRepeat];
+}
+
+- (void)mutePressed:(id)sender {
+    [self.delegate nowPlayingViewDidToggleMute];
+}
+
 - (void)progressChanged:(id)sender {
     double fraction = _progressSlider.doubleValue;
     [self.delegate nowPlayingViewDidSeekToPosition:fraction];
@@ -402,6 +457,38 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
 - (void)setVolume:(float)volume {
     _volume = volume;
     _volumeSlider.doubleValue = volume;
+    [self updateMuteIcon];
+}
+
+- (void)setPlaybackOrder:(NSInteger)playbackOrder {
+    _playbackOrder = playbackOrder;
+    [self updateShuffleRepeatButtons];
+}
+
+- (void)updateMuteIcon {
+    BOOL muted = (_volume <= 0.001f);
+    NSString *symbol = muted ? @"speaker.slash.fill" : @"speaker.wave.2.fill";
+    NSImageSymbolConfiguration *config = [NSImageSymbolConfiguration
+        configurationWithPointSize:12 weight:NSFontWeightMedium scale:NSImageSymbolScaleMedium];
+    _muteButton.image = [[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:symbol]
+                         imageWithSymbolConfiguration:config];
+    _muteButton.contentTintColor = muted ? [NSColor controlAccentColor] : fb2k_ui::textColor();
+}
+
+- (void)updateShuffleRepeatButtons {
+    // Shuffle: active when order is 3 (Random), 4 (Shuffle tracks), 5 (Shuffle albums), 6 (Shuffle folders)
+    BOOL shuffleActive = (_playbackOrder >= 3);
+    _shuffleButton.contentTintColor = shuffleActive ? [NSColor controlAccentColor] : fb2k_ui::textColor();
+
+    // Repeat: active when order is 1 (Repeat playlist) or 2 (Repeat track)
+    BOOL repeatActive = (_playbackOrder == 1 || _playbackOrder == 2);
+    BOOL repeatOne   = (_playbackOrder == 2);
+    NSString *repeatSymbol = repeatOne ? @"repeat.1" : @"repeat";
+    NSImageSymbolConfiguration *config = [NSImageSymbolConfiguration
+        configurationWithPointSize:12 weight:NSFontWeightMedium scale:NSImageSymbolScaleMedium];
+    _repeatButton.image = [[NSImage imageWithSystemSymbolName:repeatSymbol accessibilityDescription:repeatSymbol]
+                           imageWithSymbolConfiguration:config];
+    _repeatButton.contentTintColor = repeatActive ? [NSColor controlAccentColor] : fb2k_ui::textColor();
 }
 
 - (void)updatePlayPauseIcon {

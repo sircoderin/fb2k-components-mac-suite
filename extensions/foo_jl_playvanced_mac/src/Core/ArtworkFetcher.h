@@ -23,6 +23,7 @@ public:
     void onPlaybackSeek(double time);
     void onVolumeChange(float newVolDb);
     void onSelectionChanged();
+    void onPlaybackOrderChanged(t_size order);
 
     metadb_handle_ptr getCurrentPlayingTrack() const;
 

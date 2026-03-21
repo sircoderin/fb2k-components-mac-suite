@@ -99,8 +99,11 @@ void QueueCallbackManager::onPlaybackNewTrack(metadb_handle_ptr track) {
 void QueueCallbackManager::onPlaybackStop(play_control::t_stop_reason reason) {
     {
         std::lock_guard<std::mutex> lock(m_playbackMutex);
-        m_playingTrack.release();
-        m_playbackPosition = 0;
+        // Don't clear on shutdown — saveQueueState() needs the last playing track
+        if (reason != play_control::stop_reason_shutting_down) {
+            m_playingTrack.release();
+            m_playbackPosition = 0;
+        }
         m_isPaused = false;
     }
 
@@ -274,22 +277,27 @@ void QueueCallbackManager::restoreQueueState() {
         FB2K_console_formatter() << "[Queue Manager] Restored " << itemsAdded << " queue items";
 
         // If there was a playing track, start playback (paused) and seek to saved position.
-        // Starting playback will consume the first queue item (the playing track).
+        // Deferred to main queue so it runs after on_init() completes and the audio system is ready.
         if (playingIdx >= 0 && itemsAdded > 0) {
-            auto pc = playback_control::get();
-            pc->start(playback_control::track_command_play, true);
+            double posToSeek = savedPosition;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                try {
+                    auto pc = playback_control::get();
+                    pc->start(playback_control::track_command_play, true);
 
-            if (savedPosition > 0.5) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(200 * NSEC_PER_MSEC)),
-                    dispatch_get_main_queue(), ^{
-                    try {
-                        auto pc2 = playback_control::get();
-                        if (pc2->is_playing() && pc2->playback_can_seek()) {
-                            pc2->playback_seek(savedPosition);
-                        }
-                    } catch (...) {}
-                });
-            }
+                    if (posToSeek > 0.5) {
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(200 * NSEC_PER_MSEC)),
+                            dispatch_get_main_queue(), ^{
+                            try {
+                                auto pc2 = playback_control::get();
+                                if (pc2->is_playing() && pc2->playback_can_seek()) {
+                                    pc2->playback_seek(posToSeek);
+                                }
+                            } catch (...) {}
+                        });
+                    }
+                } catch (...) {}
+            });
         }
 
         // Clear saved state
