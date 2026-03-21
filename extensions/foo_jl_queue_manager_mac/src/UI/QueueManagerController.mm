@@ -802,6 +802,8 @@ static void ensureStatusIcons() {
         [self removeSelectedItems];
     } else if (key == NSCarriageReturnCharacter || key == NSEnterCharacter) {
         [self playSelectedItem];
+    } else if (key == ' ') {
+        playback_control::get()->toggle_pause();
     } else {
         [super keyDown:event];
     }
