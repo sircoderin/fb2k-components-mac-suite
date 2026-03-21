@@ -538,9 +538,27 @@ static void ensureStatusIcons() {
     NSNumber* sourcePlaylistNum = dragData[@"sourcePlaylist"];
     NSArray<NSNumber*>* rowNumbers = dragData[@"indices"];
 
+    // Library drag (e.g. from LibUI): indices are empty but paths are provided
     if (!rowNumbers || rowNumbers.count == 0) {
-        console::error("[Queue Manager] No indices in SimPlaylist drag data");
-        return NO;
+        NSArray<NSString*>* paths = dragData[@"paths"];
+        if (!paths || paths.count == 0) {
+            console::error("[Queue Manager] No indices or paths in SimPlaylist drag data");
+            return NO;
+        }
+        try {
+            auto db = metadb::get();
+            auto pm = playlist_manager::get();
+            for (NSString* path in paths) {
+                auto handle = db->handle_create([path UTF8String], 0);
+                if (handle.is_valid()) {
+                    pm->queue_add_item(handle);
+                }
+            }
+        } catch (...) {
+            console::error("[Queue Manager] Error adding library paths to queue");
+            return NO;
+        }
+        return YES;
     }
 
     // Use the source playlist from the drag data, not the active playlist

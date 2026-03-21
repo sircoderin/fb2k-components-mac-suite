@@ -12,6 +12,8 @@ static const CGFloat kButtonSpacing   = 2.0;
 static const CGFloat kProgressHeight  = 4.0;
 static const CGFloat kVolumeWidth     = 70.0;
 
+static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.rows";
+
 @interface NowPlayingView ()
 @property (nonatomic, strong) NSImageView *artworkView;
 @property (nonatomic, strong) NSTextField *titleLabel;
@@ -25,6 +27,7 @@ static const CGFloat kVolumeWidth     = 70.0;
 @property (nonatomic, strong) NSSlider *volumeSlider;
 @property (nonatomic, strong) NSTextField *idleLabel;
 @property (nonatomic, assign) BOOL isSeeking;
+@property (nonatomic, assign) BOOL isDragTarget;
 @end
 
 @implementation NowPlayingView
@@ -119,6 +122,8 @@ static const CGFloat kVolumeWidth     = 70.0;
     _idleLabel.stringValue = @"Not playing";
     _idleLabel.alignment = NSTextAlignmentCenter;
     [self addSubview:_idleLabel];
+
+    [self registerForDraggedTypes:@[kSimPlaylistPBType, NSPasteboardTypeFileURL]];
 }
 
 - (NSTextField *)makeLabel {
@@ -248,6 +253,87 @@ static const CGFloat kVolumeWidth     = 70.0;
     // Update time labels position to be below the slider for cleaner look
     _elapsedLabel.frame = NSMakeRect(sliderLeft, midY + 6, timeWidth + 10, 14);
     _remainingLabel.frame = NSMakeRect(sliderLeft + sliderWidth - timeWidth - 10, midY + 6, timeWidth + 10, 14);
+}
+
+#pragma mark - Drawing
+
+- (void)drawRect:(NSRect)dirtyRect {
+    [super drawRect:dirtyRect];
+    if (_isDragTarget) {
+        [[NSColor controlAccentColor] setStroke];
+        NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 2, 2)
+                                                            xRadius:4 yRadius:4];
+        path.lineWidth = 3.0;
+        [path stroke];
+    }
+}
+
+#pragma mark - Drag Destination
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+    NSPasteboard *pb = [sender draggingPasteboard];
+    if ([pb.types containsObject:kSimPlaylistPBType] ||
+        [pb.types containsObject:NSPasteboardTypeFileURL]) {
+        self.isDragTarget = YES;
+        [self setNeedsDisplay:YES];
+        return NSDragOperationCopy;
+    }
+    return NSDragOperationNone;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+    return _isDragTarget ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
+    self.isDragTarget = NO;
+    [self setNeedsDisplay:YES];
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
+    return YES;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+    self.isDragTarget = NO;
+    [self setNeedsDisplay:YES];
+
+    NSPasteboard *pb = [sender draggingPasteboard];
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+
+    // Prefer SimPlaylist internal type (carries foobar2000 paths)
+    if ([pb.types containsObject:kSimPlaylistPBType]) {
+        NSData *data = [pb dataForType:kSimPlaylistPBType];
+        if (data) {
+            NSDictionary *dragData = [NSKeyedUnarchiver
+                unarchivedObjectOfClasses:[NSSet setWithObjects:
+                    [NSDictionary class], [NSArray class],
+                    [NSNumber class], [NSString class], nil]
+                fromData:data error:nil];
+            NSArray<NSString *> *dragPaths = dragData[@"paths"];
+            if (dragPaths) [paths addObjectsFromArray:dragPaths];
+        }
+    }
+
+    // Fallback to standard file URLs
+    if (paths.count == 0 && [pb.types containsObject:NSPasteboardTypeFileURL]) {
+        NSArray *urls = [pb readObjectsForClasses:@[[NSURL class]]
+                                          options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
+        for (NSURL *url in urls) {
+            if (url.path) [paths addObject:url.path];
+        }
+    }
+
+    if (paths.count > 0 && [self.delegate respondsToSelector:@selector(nowPlayingViewDidReceiveDroppedPaths:)]) {
+        [self.delegate nowPlayingViewDidReceiveDroppedPaths:paths];
+        return YES;
+    }
+    return NO;
+}
+
+- (void)concludeDragOperation:(nullable id<NSDraggingInfo>)sender {
+    self.isDragTarget = NO;
+    [self setNeedsDisplay:YES];
 }
 
 #pragma mark - Actions

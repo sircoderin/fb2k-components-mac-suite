@@ -52,6 +52,11 @@
     try {
         auto pc = playback_control::get();
         float volDb = pc->get_volume();
+        if (volDb > 0.0f) {
+            // Cap at 0 dB — we don't expose amplification above unity gain
+            pc->set_volume(0.0f);
+            volDb = 0.0f;
+        }
         float normalized = (volDb <= playback_control::volume_mute) ? 0.0f :
                            powf(10.0f, volDb / 20.0f);
         _barView.volume = normalized;
@@ -202,6 +207,42 @@
         }
         pc->set_volume(dB);
     } catch (...) {}
+}
+
+- (void)nowPlayingViewDidReceiveDroppedPaths:(NSArray<NSString *> *)paths {
+    if (paths.count == 0) return;
+    try {
+        auto plMgr = playlist_manager::get();
+        auto pbCtrl = playback_control::get();
+
+        t_size active = plMgr->get_active_playlist();
+        if (active == pfc::infinite_size) {
+            active = plMgr->create_playlist_autoname(0);
+            plMgr->set_active_playlist(active);
+        }
+
+        metadb_handle_list items;
+        auto db = metadb::get();
+        for (NSString *path in paths) {
+            auto handle = db->handle_create([path UTF8String], 0);
+            if (handle.is_valid()) items.add_item(handle);
+        }
+        if (items.get_count() == 0) return;
+
+        t_size baseIndex = plMgr->playlist_get_item_count(active);
+        plMgr->playlist_add_items(active, items, bit_array_false());
+
+        bool queueWasEmpty = (plMgr->queue_get_count() == 0);
+        for (t_size i = 0; i < items.get_count(); i++) {
+            plMgr->queue_add_item_playlist(active, baseIndex + i);
+        }
+
+        if (queueWasEmpty && !pbCtrl->is_playing()) {
+            pbCtrl->start(playback_control::track_command_play);
+        }
+    } catch (...) {
+        FB2K_console_formatter() << "[PlayVanced] Error adding dropped tracks to queue";
+    }
 }
 
 #pragma mark - Metadata Extraction
