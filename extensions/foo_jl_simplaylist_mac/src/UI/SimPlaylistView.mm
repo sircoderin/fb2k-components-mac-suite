@@ -2514,8 +2514,11 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
             if (hasCmd && (key == 'a' || key == 'A')) {
                 [self selectAll];
             } else if (!hasCmd && (key == 'q' || key == 'Q')) {
-                // Q: queue hovered track
-                if (_hoveredRow >= 0) {
+                // Q: queue all selected tracks (covers single track, whole album, or mixed selection)
+                if (_selectedIndices.count > 0 &&
+                    [_delegate respondsToSelector:@selector(playlistView:didRequestQueueIndices:)]) {
+                    [_delegate playlistView:self didRequestQueueIndices:[_selectedIndices copy]];
+                } else if (_hoveredRow >= 0) {
                     NSInteger playlistIndex = [self playlistIndexForRow:_hoveredRow];
                     if (playlistIndex >= 0 &&
                         [_delegate respondsToSelector:@selector(playlistView:didRequestQueueTrack:)]) {

@@ -197,11 +197,11 @@ static const CGFloat kPadding           = 8.0;
 }
 
 - (void)albumGridView:(id)gridView wantsQueueAlbum:(AlbumItem *)album {
-    [self addPathsToQueue:[album allTrackPaths]];
+    [self queuePathsDirectly:[album allTrackPaths]];
 }
 
 - (void)albumGridView:(id)gridView wantsQueueTrack:(AlbumTrack *)track inAlbum:(AlbumItem *)album {
-    [self addPathsToQueue:@[track.path]];
+    [self queuePathsDirectly:@[track.path]];
 }
 
 - (void)albumGridView:(id)gridView requestsContextMenuForAlbum:(AlbumItem *)album atPoint:(NSPoint)screenPoint {
@@ -285,6 +285,26 @@ static const CGFloat kPadding           = 8.0;
         }
     } catch (...) {
         FB2K_console_formatter() << "[LibUI] Error adding tracks to queue";
+    }
+}
+
+/// Queue paths directly without adding them to any playlist.
+- (void)queuePathsDirectly:(NSArray<NSString *> *)paths {
+    if (paths.count == 0) return;
+    try {
+        auto plMgr = playlist_manager::get();
+        auto pbCtrl = playback_control::get();
+        auto db = metadb::get();
+        bool queueWasEmpty = (plMgr->queue_get_count() == 0);
+        for (NSString *path in paths) {
+            auto handle = db->handle_create([path UTF8String], 0);
+            if (handle.is_valid()) plMgr->queue_add_item(handle);
+        }
+        if (queueWasEmpty && !pbCtrl->is_playing()) {
+            pbCtrl->start(playback_control::track_command_play);
+        }
+    } catch (...) {
+        FB2K_console_formatter() << "[AlbumViewVanced] Error queuing tracks";
     }
 }
 

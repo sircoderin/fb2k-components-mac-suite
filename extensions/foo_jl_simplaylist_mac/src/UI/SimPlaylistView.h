@@ -146,6 +146,12 @@ extern NSPasteboardType const SimPlaylistPasteboardType;
 // Called when user presses Q to queue a track under the cursor
 - (void)playlistView:(SimPlaylistView *)view didRequestQueueTrack:(NSInteger)playlistIndex;
 
+// Called when user presses Q on a group header to queue all tracks in the album
+- (void)playlistView:(SimPlaylistView *)view didRequestQueueGroupFrom:(NSInteger)firstPlaylistIndex count:(NSInteger)count;
+
+// Called when user presses Q to queue all selected playlist indices
+- (void)playlistView:(SimPlaylistView *)view didRequestQueueIndices:(NSIndexSet *)playlistIndices;
+
 // Called to request album art for a group (returns cached image or nil, triggers async load)
 - (nullable NSImage *)playlistView:(SimPlaylistView *)view albumArtForGroupAtPlaylistIndex:(NSInteger)playlistIndex;
 

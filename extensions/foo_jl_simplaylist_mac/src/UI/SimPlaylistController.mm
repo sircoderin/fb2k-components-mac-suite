@@ -2272,6 +2272,32 @@ static BOOL isRemotePath(const char *path) {
     pm->queue_add_item_playlist((t_size)_currentPlaylistIndex, (t_size)playlistIndex);
 }
 
+- (void)playlistView:(SimPlaylistView *)view didRequestQueueGroupFrom:(NSInteger)firstPlaylistIndex count:(NSInteger)count {
+    if (_currentPlaylistIndex < 0 || firstPlaylistIndex < 0 || count <= 0) return;
+    auto pm = playlist_manager::get();
+    auto pc = playback_control::get();
+    bool queueWasEmpty = (pm->queue_get_count() == 0);
+    for (NSInteger i = 0; i < count; i++) {
+        pm->queue_add_item_playlist((t_size)_currentPlaylistIndex, (t_size)(firstPlaylistIndex + i));
+    }
+    if (queueWasEmpty && !pc->is_playing()) {
+        pc->start(playback_control::track_command_play);
+    }
+}
+
+- (void)playlistView:(SimPlaylistView *)view didRequestQueueIndices:(NSIndexSet *)playlistIndices {
+    if (_currentPlaylistIndex < 0 || playlistIndices.count == 0) return;
+    auto pm = playlist_manager::get();
+    auto pc = playback_control::get();
+    bool queueWasEmpty = (pm->queue_get_count() == 0);
+    [playlistIndices enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
+        pm->queue_add_item_playlist((t_size)_currentPlaylistIndex, (t_size)idx);
+    }];
+    if (queueWasEmpty && !pc->is_playing()) {
+        pc->start(playback_control::track_command_play);
+    }
+}
+
 - (void)playlistView:(SimPlaylistView *)view didChangeGroupColumnWidth:(CGFloat)newWidth {
     // Persist the new width to config
     simplaylist_config::setConfigInt(simplaylist_config::kGroupColumnWidth, (int64_t)newWidth);
