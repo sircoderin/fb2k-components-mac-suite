@@ -13,6 +13,9 @@ DISCLAIMER: All of this is a WIP, actively tested on my foobar2000 instance, but
 | [Waveform Seekbar](#waveform-seekbar) | Audio visualization seekbar with effects | 1.1.0 | [📖](docs/waveform.md) |
 | [Album Art (Extended)](#album-art-extended) | Multi-type album art viewer with selection support | 1.0.1 | [📖](docs/albumart.md) |
 | [Queue Manager](#queue-manager) | Visual playback queue management | 1.1.0 | [📖](docs/queuemanager.md) |
+| [LibUI](#libui) | Album grid library browser with cover art | 1.0.0 | – |
+| [LibVanced](#libvanced) | Hierarchical tree library browser | 1.0.0 | – |
+| [PlayVanced](#playvanced) | Now Playing bar with transport controls | 1.0.0 | – |
 | [Last.fm Scrobbler](#lastfm-scrobbler) | Last.fm integration and scrobbling | 1.3.0 | – |
 | [Effects DSP](#effects-dsp) | 11 audio effects (echo, reverb, pitch shift, etc.) | 1.0.0 | – |
 
@@ -114,6 +117,66 @@ Visual playback queue manager - functionality that exists in Windows foobar2000 
 
 ---
 
+### LibUI
+
+Album grid library browser — browse your entire foobar2000 library as a grid of albums with cover art. Click to expand an album inline and see its tracks; double-click to play.
+
+**Features:**
+- Album grid with configurable thumbnail size
+- In-place track list expansion on single click
+- Double-click album or track to play
+- Drag & drop to SimPlaylist, Queue Manager, or any compatible panel
+- Search/filter using foobar2000 library search syntax
+- Context menu with Play, Add to Queue, and playlist actions
+- Keyboard shortcuts (Q to queue, Enter to play)
+
+**Layout Usage:**
+```
+libui
+```
+
+---
+
+### LibVanced
+
+Hierarchical tree library browser with Artist → Album → Track grouping. A more traditional library view for navigating large collections.
+
+**Features:**
+- Tree view with configurable grouping patterns
+- Album art thumbnails per album node
+- Drag & drop to playlists and queue
+- Context menu with queue/playlist actions
+- Keyboard shortcut (Q to queue)
+- Search/filter with library search syntax
+- Cross-component interop (SimPlaylist, Queue Manager)
+
+**Layout Usage:**
+```
+libvanced
+```
+
+---
+
+### PlayVanced
+
+Now Playing bar with full transport controls, progress seeking, and volume. A compact panel designed to sit at the top or bottom of your layout.
+
+**Features:**
+- Album art, title, and artist display
+- Transport controls: previous, play/pause, stop, next
+- Shuffle (toggle) and repeat (off / all / one) with live state sync
+- Progress bar with elapsed and remaining time labels
+- Volume slider with mute toggle
+- Restores playback state (track + position) on foobar2000 restart
+- Drop zone: drag albums from LibUI to add to the playback queue
+
+**Layout Usage:**
+```
+playvanced
+```
+
+---
+
 ### Last.fm Scrobbler
 
 Last.fm integration for scrobbling and now-playing updates. An absolute necesity for us, who celebrated 20 years of last.fm scrobbling this year.
@@ -152,6 +215,7 @@ Each effect registers as a separate DSP in foobar2000's chain (Preferences > Pla
 | Waveform Seekbar | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=waveform) | TBD |
 | Album Art (Extended) | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=albumart) | TBD |
 | Queue Manager | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=queuemanager) | TBD |
+
 | Last.fm Scrobbler | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=scrobble) | TBD |
 | Effects DSP | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=effects-dsp) | TBD |
 
@@ -259,6 +323,9 @@ Use these names in the layout editor or when editing the layout text file direct
 | Waveform Seekbar | `waveform-seekbar` | `waveform_seekbar`, `foo_jl_wave_seekbar`, `jl_wave_seekbar` |
 | Album Art (Extended) | `albumart_ext` | `album_art_ext`, `albumart-ext`, `foo_jl_album_art`, `jl_album_art` |
 | Queue Manager | `Queue Manager` | `queue_manager`, `QueueManager`, `Queue`, `foo_jl_queue_manager` |
+| LibUI | `libui` | `LibUI`, `lib_ui`, `Library UI`, `foo_jl_libui` |
+| LibVanced | `libvanced` | `LibVanced`, `lib_vanced`, `Library Vanced`, `foo_jl_libvanced` |
+| PlayVanced | `playvanced` | `PlayVanced`, `play_vanced`, `NowPlaying`, `nowplaying`, `foo_jl_playvanced` |
 
 ### Example Layout
 
