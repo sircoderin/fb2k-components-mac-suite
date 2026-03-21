@@ -6,18 +6,18 @@ DISCLAIMER: All of this is a WIP, actively tested on my foobar2000 instance, but
 
 ## Extensions
 
-| Extension | Description | Version | Docs |
-|-----------|-------------|---------|------|
-| [SimPlaylist](#simplaylist) | Lightweight playlist viewer with album art and grouping | 1.4.2 | [📖](docs/simplaylist.md) |
-| [Playlist Organizer](#playlist-organizer) | Tree-based playlist management | 1.3.0 | [📖](docs/plorg.md) |
-| [Waveform Seekbar](#waveform-seekbar) | Audio visualization seekbar with effects | 1.1.0 | [📖](docs/waveform.md) |
-| [Album Art (Extended)](#album-art-extended) | Multi-type album art viewer with selection support | 1.0.1 | [📖](docs/albumart.md) |
-| [Queue Manager](#queue-manager) | Visual playback queue management | 1.1.0 | [📖](docs/queuemanager.md) |
-| [LibUI](#libui) | Album grid library browser with cover art | 1.0.0 | – |
-| [LibVanced](#libvanced) | Hierarchical tree library browser | 1.0.0 | – |
-| [PlayVanced](#playvanced) | Now Playing bar with transport controls | 1.0.0 | – |
-| [Last.fm Scrobbler](#lastfm-scrobbler) | Last.fm integration and scrobbling | 1.3.0 | – |
-| [Effects DSP](#effects-dsp) | 11 audio effects (echo, reverb, pitch shift, etc.) | 1.0.0 | – |
+| Extension                                   | Description                                             | Version | Docs                       |
+| ------------------------------------------- | ------------------------------------------------------- | ------- | -------------------------- |
+| [SimPlaylist](#simplaylist)                 | Lightweight playlist viewer with album art and grouping | 1.4.2   | [📖](docs/simplaylist.md)  |
+| [Playlist Organizer](#playlist-organizer)   | Tree-based playlist management                          | 1.3.0   | [📖](docs/plorg.md)        |
+| [Waveform Seekbar](#waveform-seekbar)       | Audio visualization seekbar with effects                | 1.1.0   | [📖](docs/waveform.md)     |
+| [Album Art (Extended)](#album-art-extended) | Multi-type album art viewer with selection support      | 1.0.1   | [📖](docs/albumart.md)     |
+| [Queue Manager](#queue-manager)             | Visual playback queue management                        | 1.1.0   | [📖](docs/queuemanager.md) |
+| [AlbumViewVanced](#albumviewvanced)         | Album grid library browser with cover art               | 1.0.0   | –                          |
+| [LibVanced](#libvanced)                     | Hierarchical tree library browser                       | 1.0.0   | –                          |
+| [PlayVanced](#playvanced)                   | Now Playing bar with transport controls                 | 1.0.0   | –                          |
+| [Last.fm Scrobbler](#lastfm-scrobbler)      | Last.fm integration and scrobbling                      | 1.3.0   | –                          |
+| [Effects DSP](#effects-dsp)                 | 11 audio effects (echo, reverb, pitch shift, etc.)      | 1.0.0   | –                          |
 
 ---
 
@@ -25,11 +25,12 @@ DISCLAIMER: All of this is a WIP, actively tested on my foobar2000 instance, but
 
 A flat playlist view with album grouping, embedded album art, and metadata display. The one plugin, which makes playlists nicer.
 
-| Overview | Settings |
-|----------|----------|
+| Overview                                                      | Settings                                                      |
+| ------------------------------------------------------------- | ------------------------------------------------------------- |
 | ![SimPlaylist Overview](docs/images/simplaylist-overview.png) | ![SimPlaylist Settings](docs/images/simplaylist-settings.png) |
 
 **Features:**
+
 - Album-based grouping with customizable patterns
 - Embedded album art thumbnails
 - Multi-column track display
@@ -42,15 +43,16 @@ A flat playlist view with album grouping, embedded album art, and metadata displ
 
 Tree-based playlist management with folder organization and smart import. Necesity to manage playlists more managable. No nice screenshots of hyper-organized playlists yet, they are scattered, but there are some import tools to import either from old windows thheme.fth or from Strawberry, which became an alternative for a time being.
 
-| Overview | Import Menu |
-|----------|-------------|
+| Overview                                              | Import Menu                                       |
+| ----------------------------------------------------- | ------------------------------------------------- |
 | ![Playlist Organizer](docs/images/plorg-overview.png) | ![Import Menu](docs/images/plorg-import-menu.png) |
 
-| Path Mapping | Settings |
-|--------------|----------|
+| Path Mapping                                        | Settings                                    |
+| --------------------------------------------------- | ------------------------------------------- |
 | ![Path Mapping](docs/images/plorg-path-mapping.png) | ![Settings](docs/images/plorg-settings.png) |
 
 **Features:**
+
 - Hierarchical folder organization
 - Drag-and-drop playlist reordering
 - Smart import from filesystem with path mapping
@@ -63,11 +65,12 @@ Tree-based playlist management with folder organization and smart import. Necesi
 
 Audio visualization seekbar with real-time waveform display and visual effects. This one was my favorite, a neat way to navigate through tracks.
 
-| Overview | Settings |
-|----------|----------|
+| Overview                                               | Settings                                                |
+| ------------------------------------------------------ | ------------------------------------------------------- |
 | ![Waveform Seekbar](docs/images/waveform-overview.png) | ![Waveform Settings](docs/images/waveform-settings.png) |
 
 **Features:**
+
 - Real-time waveform visualization
 - Multiple display modes (bars, lines, filled)
 - Customizable colors and effects
@@ -81,6 +84,7 @@ Audio visualization seekbar with real-time waveform display and visual effects. 
 Extended album art viewer with support for multiple artwork types and selection-based display. Unlike the built-in album art element, this one can show back covers, disc art, and more.
 
 **Features:**
+
 - Display front, back, disc, icon, or artist artwork
 - Shows artwork for selected track (falls back to now playing)
 - Right-click context menu to switch artwork type
@@ -89,6 +93,7 @@ Extended album art viewer with support for multiple artwork types and selection-
 - Layout parameters for default artwork type
 
 **Layout Usage:**
+
 ```
 albumart_ext                    # Front cover (default)
 albumart_ext type=back          # Back cover
@@ -109,6 +114,7 @@ Visual playback queue manager - functionality that exists in Windows foobar2000 
 <!-- Screenshot: Queue Manager -->
 
 **Features:**
+
 - Visual queue display with configurable columns
 - Drag & drop reordering within queue
 - Live updates when queue changes
@@ -122,6 +128,7 @@ Visual playback queue manager - functionality that exists in Windows foobar2000 
 Album grid library browser — browse your entire foobar2000 library as a grid of albums with cover art. Click to expand an album inline and see its tracks; double-click to play.
 
 **Features:**
+
 - Album grid with configurable thumbnail size
 - In-place track list expansion on single click
 - Double-click album or track to play
@@ -131,6 +138,7 @@ Album grid library browser — browse your entire foobar2000 library as a grid o
 - Keyboard shortcuts (Q to queue, Enter to play)
 
 **Layout Usage:**
+
 ```
 libui
 ```
@@ -142,6 +150,7 @@ libui
 Hierarchical tree library browser with Artist → Album → Track grouping. A more traditional library view for navigating large collections.
 
 **Features:**
+
 - Tree view with configurable grouping patterns
 - Album art thumbnails per album node
 - Drag & drop to playlists and queue
@@ -151,6 +160,7 @@ Hierarchical tree library browser with Artist → Album → Track grouping. A mo
 - Cross-component interop (SimPlaylist, Queue Manager)
 
 **Layout Usage:**
+
 ```
 libvanced
 ```
@@ -162,6 +172,7 @@ libvanced
 Now Playing bar with full transport controls, progress seeking, and volume. A compact panel designed to sit at the top or bottom of your layout.
 
 **Features:**
+
 - Album art, title, and artist display
 - Transport controls: previous, play/pause, stop, next
 - Shuffle (toggle) and repeat (off / all / one) with live state sync
@@ -171,6 +182,7 @@ Now Playing bar with full transport controls, progress seeking, and volume. A co
 - Drop zone: drag albums from LibUI to add to the playback queue
 
 **Layout Usage:**
+
 ```
 playvanced
 ```
@@ -184,6 +196,7 @@ Last.fm integration for scrobbling and now-playing updates. An absolute necesity
 ![Last.fm Scrobbler Settings](docs/images/scrobbler-settings.png)
 
 **Features:**
+
 - Automatic track scrobbling after 50% or 4 minutes
 - Now Playing notifications
 - Browser-based Last.fm authentication
@@ -197,6 +210,7 @@ Last.fm integration for scrobbling and now-playing updates. An absolute necesity
 A collection of 11 real-time audio effects -- a macOS port of [foo_dsp_effect](https://github.com/mudlord/foo_dsp_effect) by mudlord. The original Windows component provides standard audio effects that were missing from foobar2000's default installation; this brings them to macOS.
 
 **Effects:**
+
 - Echo, Tremolo, IIR Filter (12 biquad types)
 - Reverb (Freeverb), Phaser, WahWah
 - Chorus, Vibrato
@@ -208,13 +222,13 @@ Each effect registers as a separate DSP in foobar2000's chain (Preferences > Pla
 
 ## Downloads
 
-| Component | Download | Forum |
-|-----------|----------|-------|
-| SimPlaylist | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=simplaylist) | TBD |
-| Playlist Organizer | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=plorg) | TBD |
-| Waveform Seekbar | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=waveform) | TBD |
-| Album Art (Extended) | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=albumart) | TBD |
-| Queue Manager | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=queuemanager) | TBD |
+| Component            | Download                                                                                    | Forum |
+| -------------------- | ------------------------------------------------------------------------------------------- | ----- |
+| SimPlaylist          | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=simplaylist)  | TBD   |
+| Playlist Organizer   | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=plorg)        | TBD   |
+| Waveform Seekbar     | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=waveform)     | TBD   |
+| Album Art (Extended) | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=albumart)     | TBD   |
+| Queue Manager        | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=queuemanager) | TBD   |
 
 | Last.fm Scrobbler | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=scrobble) | TBD |
 | Effects DSP | [All Releases](https://github.com/JendaT/fb2k-components-mac-suite/releases?q=effects-dsp) | TBD |
@@ -288,6 +302,7 @@ Or build all extensions at once:
 ## Documentation
 
 ### Component Documentation
+
 - [SimPlaylist](docs/simplaylist.md) - Features, configuration, and usage
 - [Playlist Organizer](docs/plorg.md) - Features, configuration, and usage
 - [Waveform Seekbar](docs/waveform.md) - Features, configuration, and usage
@@ -295,6 +310,7 @@ Or build all extensions at once:
 - [Queue Manager](docs/queuemanager.md) - Features, configuration, and usage
 
 ### Development
+
 - [Knowledge Base](knowledge_base/) - SDK patterns and best practices
 - [Contributing](CONTRIBUTING.md) - Code standards and conventions
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Debug tools and common issues
@@ -316,16 +332,16 @@ To add these components to your layout, use **View → Layout → Enable Layout 
 
 Use these names in the layout editor or when editing the layout text file directly:
 
-| Component | Recommended | Also Accepted |
-|-----------|-------------|---------------|
-| SimPlaylist | `simplaylist` | `SimPlaylist`, `foo_jl_simplaylist`, `jl_simplaylist` |
-| Playlist Organizer | `plorg` | `playlist-organizer`, `foo_jl_plorg`, `jl_plorg` |
-| Waveform Seekbar | `waveform-seekbar` | `waveform_seekbar`, `foo_jl_wave_seekbar`, `jl_wave_seekbar` |
-| Album Art (Extended) | `albumart_ext` | `album_art_ext`, `albumart-ext`, `foo_jl_album_art`, `jl_album_art` |
-| Queue Manager | `Queue Manager` | `queue_manager`, `QueueManager`, `Queue`, `foo_jl_queue_manager` |
-| LibUI | `libui` | `LibUI`, `lib_ui`, `Library UI`, `foo_jl_libui` |
-| LibVanced | `libvanced` | `LibVanced`, `lib_vanced`, `Library Vanced`, `foo_jl_libvanced` |
-| PlayVanced | `playvanced` | `PlayVanced`, `play_vanced`, `NowPlaying`, `nowplaying`, `foo_jl_playvanced` |
+| Component            | Recommended        | Also Accepted                                                                |
+| -------------------- | ------------------ | ---------------------------------------------------------------------------- |
+| SimPlaylist          | `simplaylist`      | `SimPlaylist`, `foo_jl_simplaylist`, `jl_simplaylist`                        |
+| Playlist Organizer   | `plorg`            | `playlist-organizer`, `foo_jl_plorg`, `jl_plorg`                             |
+| Waveform Seekbar     | `waveform-seekbar` | `waveform_seekbar`, `foo_jl_wave_seekbar`, `jl_wave_seekbar`                 |
+| Album Art (Extended) | `albumart_ext`     | `album_art_ext`, `albumart-ext`, `foo_jl_album_art`, `jl_album_art`          |
+| Queue Manager        | `Queue Manager`    | `queue_manager`, `QueueManager`, `Queue`, `foo_jl_queue_manager`             |
+| LibUI                | `libui`            | `LibUI`, `lib_ui`, `Library UI`, `foo_jl_libui`                              |
+| LibVanced            | `libvanced`        | `LibVanced`, `lib_vanced`, `Library Vanced`, `foo_jl_libvanced`              |
+| PlayVanced           | `playvanced`       | `PlayVanced`, `play_vanced`, `NowPlaying`, `nowplaying`, `foo_jl_playvanced` |
 
 ### Example Layout
 
@@ -349,6 +365,7 @@ splitter horizontal style=thin
 ```
 
 This creates a layout with:
+
 - Waveform seekbar at the top
 - Playlist Organizer on the left sidebar
 - SimPlaylist as the main playlist view
