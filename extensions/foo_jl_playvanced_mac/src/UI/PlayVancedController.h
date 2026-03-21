@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)handlePlaybackSeek:(double)time;
 - (void)handleSelectionChanged;
 - (void)handleVolumeChanged:(float)volume;
+- (void)handlePlaybackOrderChanged:(NSInteger)order;
 
 @end
 

@@ -10,6 +10,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)nowPlayingViewDidPressPrevious;
 - (void)nowPlayingViewDidPressPlayPause;
 - (void)nowPlayingViewDidPressNext;
+- (void)nowPlayingViewDidPressStop;
+- (void)nowPlayingViewDidToggleShuffle;
+- (void)nowPlayingViewDidCycleRepeat;
+- (void)nowPlayingViewDidToggleMute;
 - (void)nowPlayingViewDidSeekToPosition:(double)fraction;
 - (void)nowPlayingViewDidChangeVolume:(float)volume;
 - (void)nowPlayingViewDidReceiveDroppedPaths:(NSArray<NSString *> *)paths;
@@ -25,6 +29,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL isPlaying;
 @property (nonatomic, assign) BOOL isPaused;
 @property (nonatomic, assign) float volume;
+// 0=Default, 1=RepeatAll, 2=RepeatOne, 3=Random, 4=Shuffle(tracks), 5=Shuffle(albums), 6=Shuffle(folders)
+@property (nonatomic, assign) NSInteger playbackOrder;
 
 - (void)clearDisplay;
 

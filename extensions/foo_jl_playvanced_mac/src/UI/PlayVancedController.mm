@@ -35,6 +35,7 @@
 
     [self compileTitleFormats];
     [self syncVolume];
+    [self syncPlaybackOrder];
 }
 
 - (void)compileTitleFormats {
@@ -63,6 +64,14 @@
     } catch (...) {}
 }
 
+- (void)syncPlaybackOrder {
+    try {
+        auto pm = playlist_manager::get();
+        t_size order = pm->playback_order_get_active();
+        _barView.playbackOrder = (NSInteger)order;
+    } catch (...) {}
+}
+
 - (void)viewDidAppear {
     [super viewDidAppear];
 
@@ -71,7 +80,6 @@
         metadb_handle_ptr track;
         if (pbCtrl->get_now_playing(track) && track.is_valid()) {
             [self handleNewTrack:track];
-            _barView.isPaused = pbCtrl->is_paused();
         }
     }
 }
@@ -86,7 +94,7 @@
     _currentPath = path;
 
     _barView.isPlaying = YES;
-    _barView.isPaused = NO;
+    _barView.isPaused = playback_control::get()->is_paused();
     _barView.playbackPosition = 0;
     _barView.trackDuration = track->get_length();
 
@@ -162,6 +170,10 @@
     _barView.volume = volume;
 }
 
+- (void)handlePlaybackOrderChanged:(NSInteger)order {
+    _barView.playbackOrder = order;
+}
+
 #pragma mark - NowPlayingViewDelegate
 
 - (void)nowPlayingViewDidPressPrevious {
@@ -182,6 +194,45 @@
     try {
         auto pc = playback_control::get();
         pc->start(playback_control::track_command_next);
+    } catch (...) {}
+}
+
+- (void)nowPlayingViewDidPressStop {
+    try {
+        playback_control::get()->stop();
+    } catch (...) {}
+}
+
+- (void)nowPlayingViewDidToggleShuffle {
+    try {
+        auto pm = playlist_manager::get();
+        t_size current = pm->playback_order_get_active();
+        // Shuffle is active when order >= 3 (Random/Shuffle variants)
+        // Toggle: if active → Default(0), if inactive → Shuffle tracks(4)
+        t_size next = (current >= 3) ? 0 : 4;
+        pm->playback_order_set_active(next);
+    } catch (...) {}
+}
+
+- (void)nowPlayingViewDidCycleRepeat {
+    try {
+        auto pm = playlist_manager::get();
+        t_size current = pm->playback_order_get_active();
+        t_size next;
+        if (current == 1) {
+            next = 2; // Repeat playlist → Repeat track
+        } else if (current == 2) {
+            next = 0; // Repeat track → Off
+        } else {
+            next = 1; // Anything else → Repeat playlist
+        }
+        pm->playback_order_set_active(next);
+    } catch (...) {}
+}
+
+- (void)nowPlayingViewDidToggleMute {
+    try {
+        playback_control::get()->volume_mute_toggle();
     } catch (...) {}
 }
 

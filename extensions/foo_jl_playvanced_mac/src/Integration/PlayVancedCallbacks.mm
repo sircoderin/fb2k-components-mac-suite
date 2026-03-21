@@ -99,6 +99,15 @@ void PlayVancedCallbackManager::onSelectionChanged() {
     });
 }
 
+void PlayVancedCallbackManager::onPlaybackOrderChanged(t_size order) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        std::lock_guard<std::mutex> lock(g_controllersMutex);
+        for (PlayVancedController *c in g_controllers) {
+            [c handlePlaybackOrderChanged:(NSInteger)order];
+        }
+    });
+}
+
 metadb_handle_ptr PlayVancedCallbackManager::getCurrentPlayingTrack() const {
     std::lock_guard<std::mutex> lock(m_trackMutex);
     return m_playingTrack;
@@ -160,7 +169,8 @@ class playvanced_playlist_callback : public playlist_callback_static {
 public:
     unsigned get_flags() override {
         return flag_on_items_selection_change |
-               flag_on_playlist_activate;
+               flag_on_playlist_activate |
+               flag_on_playback_order_changed;
     }
 
     void on_items_selection_change(t_size p_playlist, const bit_array& p_affected, const bit_array& p_state) override {
@@ -189,7 +199,9 @@ public:
     void on_playlists_removed(const bit_array&, t_size, t_size) override {}
     void on_playlist_renamed(t_size, const char*, t_size) override {}
     void on_default_format_changed() override {}
-    void on_playback_order_changed(t_size) override {}
+    void on_playback_order_changed(t_size p_new_order) override {
+        PlayVancedCallbackManager::instance().onPlaybackOrderChanged(p_new_order);
+    }
     void on_playlist_locked(t_size, bool) override {}
 };
 
