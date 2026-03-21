@@ -6,8 +6,8 @@
 #import "LibUICallbacks.h"
 
 JL_COMPONENT_ABOUT(
-    "LibUI",
-    LIBUI_VERSION,
+    "AlbumViewVanced",
+    ALBUMVIEWVANCED_VERSION,
     "Album grid library browser for foobar2000 macOS\n\n"
     "Features:\n"
     "- Album grid with cover art thumbnails\n"
@@ -39,7 +39,10 @@ namespace {
         }
 
         bool match_name(const char* name) override {
-            return strcmp(name, "LibUI") == 0 ||
+            return strcmp(name, "AlbumViewVanced") == 0 ||
+                   strcmp(name, "albumviewvanced") == 0 ||
+                   strcmp(name, "album_view_vanced") == 0 ||
+                   strcmp(name, "LibUI") == 0 ||
                    strcmp(name, "libui") == 0 ||
                    strcmp(name, "lib_ui") == 0 ||
                    strcmp(name, "Library UI") == 0 ||
@@ -48,7 +51,7 @@ namespace {
         }
 
         fb2k::stringRef get_name() override {
-            return fb2k::makeString("LibUI");
+            return fb2k::makeString("AlbumViewVanced");
         }
 
         GUID get_guid() override {
@@ -63,12 +66,12 @@ class libui_init : public initquit {
 public:
     void on_init() override {
         LibUICallbackManager::instance().initCallbacks();
-        console::info("[LibUI] Component initialized");
+        console::info("[AlbumViewVanced] Component initialized");
     }
 
     void on_quit() override {
         LibUICallbackManager::instance().shutdownCallbacks();
-        console::info("[LibUI] Component shutting down");
+        console::info("[AlbumViewVanced] Component shutting down");
     }
 };
 

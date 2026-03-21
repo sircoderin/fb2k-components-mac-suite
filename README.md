@@ -13,6 +13,9 @@ DISCLAIMER: All of this is a WIP, actively tested on my foobar2000 instance, but
 | [Waveform Seekbar](#waveform-seekbar) | Audio visualization seekbar with effects | 1.1.0 | [📖](docs/waveform.md) |
 | [Album Art (Extended)](#album-art-extended) | Multi-type album art viewer with selection support | 1.0.1 | [📖](docs/albumart.md) |
 | [Queue Manager](#queue-manager) | Visual playback queue management | 1.1.0 | [📖](docs/queuemanager.md) |
+| [AlbumViewVanced](#albumviewvanced) | Album grid library browser with cover art | 1.0.0 | – |
+| [LibVanced](#libvanced) | Hierarchical tree library browser | 1.0.0 | – |
+| [PlayVanced](#playvanced) | Now Playing bar with transport controls | 1.0.0 | – |
 | [Last.fm Scrobbler](#lastfm-scrobbler) | Last.fm integration and scrobbling | 1.3.0 | – |
 | [Effects DSP](#effects-dsp) | 11 audio effects (echo, reverb, pitch shift, etc.) | 1.0.0 | – |
 

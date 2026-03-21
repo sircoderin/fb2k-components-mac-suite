@@ -13,8 +13,8 @@ PROJECT_NAME = "foo_jl_libui"
 BUNDLE_ID = "com.foobar2000.foo-jl-libui"
 SDK_PATH = Fb2kSdk.path
 
-COMPONENT_VERSION = Fb2kVersions.get("libui")
-BUILD_NUMBER = Fb2kVersions.get_build_number("libui")
+COMPONENT_VERSION = Fb2kVersions.get("albumviewvanced")
+BUILD_NUMBER = Fb2kVersions.get_build_number("albumviewvanced")
 
 uuid_project = generate_uuid
 uuid_main_group = generate_uuid

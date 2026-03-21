@@ -49,9 +49,9 @@
 #define LIBVANCED_VERSION "1.0.0"
 #define LIBVANCED_VERSION_INT 100
 
-// LibUI
-#define LIBUI_VERSION "1.0.0"
-#define LIBUI_VERSION_INT 100
+// AlbumViewVanced
+#define ALBUMVIEWVANCED_VERSION "1.0.0"
+#define ALBUMVIEWVANCED_VERSION_INT 100
 
 // PlayVanced (Now Playing panel)
 #define PLAYVANCED_VERSION "1.0.0"
