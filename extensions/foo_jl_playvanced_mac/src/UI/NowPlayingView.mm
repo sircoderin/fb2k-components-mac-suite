@@ -529,4 +529,17 @@ static NSPasteboardType const kSimPlaylistPBType = @"com.foobar2000.simplaylist.
     return [NSString stringWithFormat:@"%d:%02d", minutes, secs];
 }
 
+#pragma mark - Keyboard
+
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)keyDown:(NSEvent *)event {
+    NSString *chars = event.charactersIgnoringModifiers;
+    if (chars.length > 0 && [chars characterAtIndex:0] == ' ') {
+        playback_control::get()->toggle_pause();
+        return;
+    }
+    [super keyDown:event];
+}
+
 @end

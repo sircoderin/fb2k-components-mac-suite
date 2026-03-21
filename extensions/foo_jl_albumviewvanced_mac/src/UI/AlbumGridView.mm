@@ -669,6 +669,11 @@ typedef struct {
         return;
     }
 
+    if (ch == ' ') {
+        playback_control::get()->toggle_pause();
+        return;
+    }
+
     if (ch == 27) { // Escape
         [self collapseExpandedAlbum];
         return;
