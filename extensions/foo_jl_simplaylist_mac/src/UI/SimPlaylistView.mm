@@ -52,7 +52,6 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 // Performance: cached row y-offsets for O(1) lookup
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *rowYOffsets;
 @property (nonatomic, assign) CGFloat totalContentHeight;
-@property (nonatomic, assign) BOOL needsFullRedraw;  // Force full visible rect redraw after group data changes
 @property (nonatomic, assign) BOOL debugRendering;   // Show diagnostic text on rendering anomalies
 @property (nonatomic, strong) NSDictionary *currentDragData;  // Internal drag data, passed via draggingSource
 @end
@@ -237,6 +236,11 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     return YES;  // Top-left origin for easier layout
 }
 
+- (void)prepareContentInRect:(NSRect)rect {
+    [super prepareContentInRect:rect];
+    [self setNeedsDisplay:YES];
+}
+
 - (BOOL)acceptsFirstResponder {
     return YES;
 }
@@ -288,9 +292,6 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         [self setFrameSize:contentSize];
         [self invalidateIntrinsicContentSize];
     }
-    // Force full visible rect redraw on next drawRect: to prevent stale
-    // copy-on-scroll pixels when group data has changed
-    _needsFullRedraw = YES;
     [self setNeedsDisplay:YES];
 }
 
@@ -800,13 +801,10 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 - (void)drawRect:(NSRect)dirtyRect {
     [super drawRect:dirtyRect];
 
-    // After group data changes, NSScrollView's copy-on-scroll may have copied stale
-    // pixels from before the change. Expand dirtyRect to full visible rect to ensure
-    // all visible rows are redrawn with current data.
-    if (_needsFullRedraw) {
-        _needsFullRedraw = NO;
-        dirtyRect = [self visibleRect];
-    }
+    // Layer-backed views draw into a backing store that is only updated on
+    // setNeedsDisplay:. Always draw the full visible rect so scrolling into
+    // previously-undrawn regions never shows stale/blank content.
+    dirtyRect = [self visibleRect];
 
     // Background - skip for glass mode to let underlying effect show through
     if (!_glassBackground) {
@@ -888,7 +886,7 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
     BOOL isPadding = [self isRowPaddingRow:row];
     NSInteger playlistIndex = (isHeader || isSubgroupHeader || isPadding) ? -1 : [self playlistIndexForRow:row];
 
-    // Unmapped row: draw debug diagnostic if enabled, otherwise skip silently
+    // Unmapped row: group data is transitional (partial detection in progress).
     if (!isHeader && !isSubgroupHeader && !isPadding && playlistIndex < 0) {
         if (_debugRendering) {
             NSInteger groupIndex = [self groupIndexForRow:row];
@@ -2358,7 +2356,19 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         NSPoint location = [self convertPoint:event.locationInWindow fromView:nil];
         NSInteger row = [self rowAtPoint:location];
         if (row >= 0 && [_delegate respondsToSelector:@selector(playlistView:didDoubleClickRow:)]) {
-            [_delegate playlistView:self didDoubleClickRow:row];
+            BOOL isInGroupColumn = (location.x < _groupColumnWidth && _groupColumnWidth > 0 && _groupStarts.count > 0);
+            if (isInGroupColumn) {
+                NSInteger groupIndex = [self groupIndexForRow:row];
+                if (groupIndex >= 0) {
+                    NSRange range = [self playlistIndexRangeForGroup:groupIndex];
+                    if (range.location != NSNotFound && range.length > 0) {
+                        row = [self rowForPlaylistIndex:range.location];
+                    }
+                }
+            }
+            if (row >= 0) {
+                [_delegate playlistView:self didDoubleClickRow:row];
+            }
         }
     }
 }
