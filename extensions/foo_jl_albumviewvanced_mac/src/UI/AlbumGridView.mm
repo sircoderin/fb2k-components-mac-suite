@@ -4,9 +4,10 @@
 #import "../fb2k_sdk.h"
 #import "../../../../shared/UIStyles.h"
 
-NSPasteboardType const LibUIPasteboardType = @"com.foobar2000.libui.albums";
+NSPasteboardType const AlbumViewVancedPasteboardType = @"com.foobar2000.albumviewvanced.albums";
 
 static const CGFloat kCellPadding      = 12.0;
+static const CGFloat kContentInsetLeft = 10.0;
 static const CGFloat kTextAreaHeight   = 48.0;
 static const CGFloat kTrackRowHeight   = 22.0;
 static const CGFloat kTrackListPadding = 8.0;
@@ -26,6 +27,10 @@ static inline NSInteger columnsForWidth(CGFloat viewWidth, CGFloat thumbSize) {
 
 static inline CGFloat cellWidth(CGFloat viewWidth, NSInteger cols) {
     return floor((viewWidth - kCellPadding * (cols - 1)) / cols);
+}
+
+static inline CGFloat contentWidthForView(CGFloat viewWidth) {
+    return MAX(1.0, viewWidth - kContentInsetLeft);
 }
 
 @implementation AlbumGridView {
@@ -124,9 +129,10 @@ static inline CGFloat cellWidth(CGFloat viewWidth, NSInteger cols) {
     CGFloat w = self.superview ? self.superview.bounds.size.width : self.bounds.size.width;
     if (w <= 0) w = 300;
 
-    NSInteger cols = columnsForWidth(w, _thumbnailSize);
+    CGFloat contentW = contentWidthForView(w);
+    NSInteger cols = columnsForWidth(contentW, _thumbnailSize);
     NSInteger albumCount = (NSInteger)_albums.count;
-    CGFloat cw = cellWidth(w, cols);
+    CGFloat cw = cellWidth(contentW, cols);
     CGFloat ch = cellTotalHeight(cw);
 
     CGFloat totalHeight = 0;
@@ -170,8 +176,9 @@ static const CGFloat kTrackHeaderHeight = 28.0;
     CGFloat w = bounds.size.width;
     if (w <= 0 || !_albums || _albums.count == 0) return;
 
-    NSInteger cols = columnsForWidth(w, _thumbnailSize);
-    CGFloat cw = cellWidth(w, cols);
+    CGFloat contentW = contentWidthForView(w);
+    NSInteger cols = columnsForWidth(contentW, _thumbnailSize);
+    CGFloat cw = cellWidth(contentW, cols);
     CGFloat thumbSize = cw;
     CGFloat ch = cellTotalHeight(cw);
 
@@ -211,7 +218,7 @@ static const CGFloat kTrackHeaderHeight = 28.0;
 
         for (NSInteger i = rowStart; i < rowEnd; i++) {
             NSInteger col = i - rowStart;
-            CGFloat x = col * (cw + kCellPadding);
+            CGFloat x = kContentInsetLeft + col * (cw + kCellPadding);
             NSRect cellRect = NSMakeRect(x, y, cw, ch);
 
             if (!NSIntersectsRect(cellRect, dirtyRect)) continue;
@@ -437,8 +444,9 @@ typedef struct {
     CGFloat w = self.bounds.size.width;
     if (w <= 0 || !_albums || _albums.count == 0) return result;
 
-    NSInteger cols = columnsForWidth(w, _thumbnailSize);
-    CGFloat cw = cellWidth(w, cols);
+    CGFloat contentW = contentWidthForView(w);
+    NSInteger cols = columnsForWidth(contentW, _thumbnailSize);
+    CGFloat cw = cellWidth(contentW, cols);
     CGFloat ch = cellTotalHeight(cw);
     NSInteger albumCount = (NSInteger)_albums.count;
 
@@ -448,9 +456,16 @@ typedef struct {
         CGFloat rowBottom = y + ch;
 
         if (point.y >= y && point.y < rowBottom) {
-            NSInteger col = (NSInteger)(point.x / (cw + kCellPadding));
+            if (point.x < kContentInsetLeft) {
+                return result;
+            }
+            CGFloat localX = point.x - kContentInsetLeft;
+            NSInteger col = (NSInteger)(localX / (cw + kCellPadding));
             if (col >= 0 && col < (rowEnd - rowStart)) {
-                result.albumIndex = rowStart + col;
+                CGFloat cellX = col * (cw + kCellPadding);
+                if (localX >= cellX && localX < cellX + cw) {
+                    result.albumIndex = rowStart + col;
+                }
             }
             return result;
         }

@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Generate Xcode project for foo_jl_libui
+# Generate Xcode project for foo_jl_albumviewvanced
 
 require 'fileutils'
 require 'securerandom'
@@ -9,8 +9,8 @@ def generate_uuid
   SecureRandom.hex(12).upcase
 end
 
-PROJECT_NAME = "foo_jl_libui"
-BUNDLE_ID = "com.foobar2000.foo-jl-libui"
+PROJECT_NAME = "foo_jl_albumviewvanced"
+BUNDLE_ID = "com.foobar2000.foo-jl-albumviewvanced"
 SDK_PATH = Fb2kSdk.path
 
 COMPONENT_VERSION = Fb2kVersions.get("albumviewvanced")

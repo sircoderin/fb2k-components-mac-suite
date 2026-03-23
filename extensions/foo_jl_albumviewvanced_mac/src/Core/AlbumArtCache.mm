@@ -4,6 +4,7 @@
 @implementation AlbumArtCache {
     NSCache<NSString *, NSImage *> *_cache;
     NSMutableSet<NSString *> *_pending;
+    NSMutableSet<NSString *> *_noImageKeys;
     dispatch_queue_t _loadQueue;
 }
 
@@ -21,8 +22,10 @@
     if (self) {
         _cache = [[NSCache alloc] init];
         _cache.countLimit = 1000;
+        _cache.totalCostLimit = 64 * 1024 * 1024; // ~64MB decoded image budget
         _pending = [NSMutableSet set];
-        _loadQueue = dispatch_queue_create("com.foobar2000.libui.albumart",
+        _noImageKeys = [NSMutableSet set];
+        _loadQueue = dispatch_queue_create("com.foobar2000.albumviewvanced.albumart",
                                            DISPATCH_QUEUE_CONCURRENT);
     }
     return self;
@@ -36,6 +39,12 @@
     NSString *cacheKey = [NSString stringWithFormat:@"%@_%.0f", path, thumbnailSize];
     NSImage *cached = [_cache objectForKey:cacheKey];
     if (cached) return cached;
+
+    @synchronized (_noImageKeys) {
+        if ([_noImageKeys containsObject:cacheKey]) {
+            return nil;
+        }
+    }
 
     if (!completion) return nil;
 
@@ -57,7 +66,13 @@
             }
 
             if (image) {
-                [self->_cache setObject:image forKey:keyCopy];
+                NSSize s = image.size;
+                NSUInteger cost = (NSUInteger)MAX(1.0, s.width) * (NSUInteger)MAX(1.0, s.height) * 4;
+                [self->_cache setObject:image forKey:keyCopy cost:cost];
+            } else {
+                @synchronized (self->_noImageKeys) {
+                    [self->_noImageKeys addObject:keyCopy];
+                }
             }
 
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -120,9 +135,23 @@
 
 - (void)clearCache {
     [_cache removeAllObjects];
+    @synchronized (_noImageKeys) {
+        [_noImageKeys removeAllObjects];
+    }
 }
 
 + (NSImage *)placeholderImageOfSize:(CGFloat)size {
+    static NSCache<NSNumber *, NSImage *> *placeholderCache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        placeholderCache = [[NSCache alloc] init];
+        placeholderCache.countLimit = 16;
+    });
+
+    NSNumber *sizeKey = @(llround(size));
+    NSImage *cached = [placeholderCache objectForKey:sizeKey];
+    if (cached) return cached;
+
     NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(size, size)];
     [img lockFocus];
 
@@ -148,6 +177,7 @@
     [note drawAtPoint:noteOrigin withAttributes:attrs];
 
     [img unlockFocus];
+    [placeholderCache setObject:img forKey:sizeKey];
     return img;
 }
 

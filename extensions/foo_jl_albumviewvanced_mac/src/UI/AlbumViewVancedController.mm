@@ -1,4 +1,4 @@
-#import "LibUIController.h"
+#import "AlbumViewVancedController.h"
 #import "AlbumGridView.h"
 #import "../Core/AlbumDataSource.h"
 #import "../Core/AlbumItem.h"
@@ -12,10 +12,10 @@ static const CGFloat kSearchScrollGap   = 4.0;
 static const CGFloat kStatusBottomMargin = 4.0;
 static const CGFloat kPadding           = 8.0;
 
-@interface LibUIController () <NSSearchFieldDelegate, AlbumDataSourceDelegate, AlbumGridViewDelegate>
+@interface AlbumViewVancedController () <NSSearchFieldDelegate, AlbumDataSourceDelegate, AlbumGridViewDelegate>
 @end
 
-@implementation LibUIController {
+@implementation AlbumViewVancedController {
     NSVisualEffectView *_containerView;
     NSSearchField      *_searchField;
     NSScrollView       *_scrollView;
@@ -31,6 +31,7 @@ static const CGFloat kPadding           = 8.0;
 
     // Debounced search
     NSTimer *_searchDebounceTimer;
+    NSTimer *_libraryRebuildDebounceTimer;
 }
 
 - (void)loadView {
@@ -89,7 +90,7 @@ static const CGFloat kPadding           = 8.0;
     [super viewDidAppear];
     if (!_initialLoadDone) {
         _initialLoadDone = YES;
-        [_dataSource rebuildWithFilter:nil];
+        [self scheduleLibraryRebuild];
     }
 }
 
@@ -184,6 +185,21 @@ static const CGFloat kPadding           = 8.0;
     [_dataSource rebuildWithFilter:query];
 }
 
+- (void)scheduleLibraryRebuild {
+    [_libraryRebuildDebounceTimer invalidate];
+    _libraryRebuildDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.12
+                                                                     target:self
+                                                                   selector:@selector(executeLibraryRebuild)
+                                                                   userInfo:nil
+                                                                    repeats:NO];
+}
+
+- (void)executeLibraryRebuild {
+    NSString *query = _searchField.stringValue;
+    if (query.length == 0) query = nil;
+    [_dataSource rebuildWithFilter:query];
+}
+
 #pragma mark - AlbumGridViewDelegate
 
 - (void)albumGridView:(id)gridView wantsPlayAlbum:(AlbumItem *)album {
@@ -243,7 +259,7 @@ static const CGFloat kPadding           = 8.0;
 
         pbCtrl->start(playback_control::track_command_play);
     } catch (...) {
-        FB2K_console_formatter() << "[LibUI] Error starting playback";
+        FB2K_console_formatter() << "[AlbumViewVanced] Error starting playback";
     }
 }
 
@@ -284,7 +300,7 @@ static const CGFloat kPadding           = 8.0;
             pbCtrl->start(playback_control::track_command_play);
         }
     } catch (...) {
-        FB2K_console_formatter() << "[LibUI] Error adding tracks to queue";
+        FB2K_console_formatter() << "[AlbumViewVanced] Error adding tracks to queue";
     }
 }
 
@@ -362,7 +378,7 @@ static const CGFloat kPadding           = 8.0;
         [menu popUpMenuPositioningItem:nil atLocation:screenPoint inView:nil];
 
     } @catch (NSException *exception) {
-        FB2K_console_formatter() << "[LibUI] Context menu error: "
+        FB2K_console_formatter() << "[AlbumViewVanced] Context menu error: "
             << [[exception description] UTF8String];
     }
 }
@@ -408,7 +424,7 @@ static const CGFloat kPadding           = 8.0;
         try {
             _contextMenuManager->execute_by_id((unsigned)sender.tag);
         } catch (...) {
-            FB2K_console_formatter() << "[LibUI] Context menu execution error";
+            FB2K_console_formatter() << "[AlbumViewVanced] Context menu execution error";
         }
     }
 }
@@ -426,19 +442,20 @@ static const CGFloat kPadding           = 8.0;
 #pragma mark - Library callbacks
 
 - (void)handleLibraryItemsAdded {
-    [_dataSource rebuildWithFilter:_searchField.stringValue.length > 0 ? _searchField.stringValue : nil];
+    [self scheduleLibraryRebuild];
 }
 
 - (void)handleLibraryItemsRemoved {
-    [_dataSource rebuildWithFilter:_searchField.stringValue.length > 0 ? _searchField.stringValue : nil];
+    [self scheduleLibraryRebuild];
 }
 
 - (void)handleLibraryItemsModified {
-    [_dataSource rebuildWithFilter:_searchField.stringValue.length > 0 ? _searchField.stringValue : nil];
+    [self scheduleLibraryRebuild];
 }
 
 - (void)dealloc {
     [_searchDebounceTimer invalidate];
+    [_libraryRebuildDebounceTimer invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 

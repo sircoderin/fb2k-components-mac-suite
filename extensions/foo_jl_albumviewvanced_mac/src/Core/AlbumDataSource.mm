@@ -44,7 +44,7 @@
                     search_filter_manager_v2::KFlagSuppressNotify
                 );
             } catch (...) {
-                FB2K_console_formatter() << "[LibUI] Failed to create search filter";
+                FB2K_console_formatter() << "[AlbumViewVanced] Failed to create search filter";
             }
 
             if (filter.is_valid()) {
@@ -61,7 +61,7 @@
         }
         gotItems = true;
     } @catch (NSException *ex) {
-        FB2K_console_formatter() << "[LibUI] Exception fetching library: " << [[ex reason] UTF8String];
+        FB2K_console_formatter() << "[AlbumViewVanced] Exception fetching library: " << [[ex reason] UTF8String];
     }
 
     if (!gotItems || allItems.get_count() == 0) {

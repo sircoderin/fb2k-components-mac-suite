@@ -2,8 +2,8 @@
 #include "../../../../shared/common_about.h"
 #include "../../../../shared/version.h"
 
-#import "../UI/LibUIController.h"
-#import "LibUICallbacks.h"
+#import "../UI/AlbumViewVancedController.h"
+#import "AlbumViewVancedCallbacks.h"
 
 JL_COMPONENT_ABOUT(
     "AlbumViewVanced",
@@ -19,21 +19,21 @@ JL_COMPONENT_ABOUT(
     "- Dark mode support"
 );
 
-VALIDATE_COMPONENT_FILENAME("foo_jl_libui.component");
+VALIDATE_COMPONENT_FILENAME("foo_jl_albumviewvanced.component");
 
 namespace {
     // {B4E8F3A2-9C5D-4E6B-AF7E-2D3C4B5A6E7F}
-    static const GUID g_guid_libui = {
+    static const GUID g_guid_albumviewvanced = {
         0xB4E8F3A2, 0x9C5D, 0x4E6B,
         {0xAF, 0x7E, 0x2D, 0x3C, 0x4B, 0x5A, 0x6E, 0x7F}
     };
 
-    class libui_ui_element : public ui_element_mac {
+    class albumviewvanced_ui_element : public ui_element_mac {
     public:
         service_ptr instantiate(service_ptr arg) override {
             @autoreleasepool {
-                LibUIController* controller = [[LibUIController alloc] init];
-                LibUICallbackManager::instance().registerController(controller);
+                AlbumViewVancedController* controller = [[AlbumViewVancedController alloc] init];
+                AlbumViewVancedCallbackManager::instance().registerController(controller);
                 return fb2k::wrapNSObject(controller);
             }
         }
@@ -41,13 +41,7 @@ namespace {
         bool match_name(const char* name) override {
             return strcmp(name, "AlbumViewVanced") == 0 ||
                    strcmp(name, "albumviewvanced") == 0 ||
-                   strcmp(name, "album_view_vanced") == 0 ||
-                   strcmp(name, "LibUI") == 0 ||
-                   strcmp(name, "libui") == 0 ||
-                   strcmp(name, "lib_ui") == 0 ||
-                   strcmp(name, "Library UI") == 0 ||
-                   strcmp(name, "foo_jl_libui") == 0 ||
-                   strcmp(name, "jl_libui") == 0;
+                   strcmp(name, "album_view_vanced") == 0;
         }
 
         fb2k::stringRef get_name() override {
@@ -55,24 +49,24 @@ namespace {
         }
 
         GUID get_guid() override {
-            return g_guid_libui;
+            return g_guid_albumviewvanced;
         }
     };
 
-    FB2K_SERVICE_FACTORY(libui_ui_element);
+    FB2K_SERVICE_FACTORY(albumviewvanced_ui_element);
 }
 
-class libui_init : public initquit {
+class albumviewvanced_init : public initquit {
 public:
     void on_init() override {
-        LibUICallbackManager::instance().initCallbacks();
+        AlbumViewVancedCallbackManager::instance().initCallbacks();
         console::info("[AlbumViewVanced] Component initialized");
     }
 
     void on_quit() override {
-        LibUICallbackManager::instance().shutdownCallbacks();
+        AlbumViewVancedCallbackManager::instance().shutdownCallbacks();
         console::info("[AlbumViewVanced] Component shutting down");
     }
 };
 
-FB2K_SERVICE_FACTORY(libui_init);
+FB2K_SERVICE_FACTORY(albumviewvanced_init);

@@ -4,7 +4,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface LibUIController : NSViewController
+@interface AlbumViewVancedController : NSViewController
 
 - (void)handleLibraryItemsAdded;
 - (void)handleLibraryItemsRemoved;

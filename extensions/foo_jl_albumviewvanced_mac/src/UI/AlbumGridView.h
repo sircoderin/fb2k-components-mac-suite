@@ -7,7 +7,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-extern NSPasteboardType const LibUIPasteboardType;
+extern NSPasteboardType const AlbumViewVancedPasteboardType;
 
 @protocol AlbumGridViewDelegate <NSObject>
 /// Double-click album: replace active playlist and play from first track
