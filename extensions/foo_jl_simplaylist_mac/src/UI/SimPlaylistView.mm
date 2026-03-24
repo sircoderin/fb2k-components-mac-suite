@@ -824,10 +824,11 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
 #pragma mark - Sparse Model Drawing
 
 - (void)drawSparseModelInRect:(NSRect)dirtyRect {
-    // Find visible row range (O(1) calculation)
-    NSRect visibleRect = [self visibleRect];
-    NSInteger firstRow = [self rowAtPoint:NSMakePoint(0, NSMinY(visibleRect))];
-    NSInteger lastRow = [self rowAtPoint:NSMakePoint(0, NSMaxY(visibleRect))];
+    // Derive row range from dirtyRect so we draw exactly what AppKit says needs
+    // drawing. AppKit issues a dirty rect only for the newly exposed strip on
+    // scroll — deriving from dirtyRect ensures those rows are always covered.
+    NSInteger firstRow = [self rowAtPoint:NSMakePoint(0, NSMinY(dirtyRect))];
+    NSInteger lastRow = [self rowAtPoint:NSMakePoint(0, NSMaxY(dirtyRect))];
 
     NSInteger totalRows = [self rowCount];
     if (firstRow < 0) firstRow = 0;
@@ -843,12 +844,10 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
         [self fillGroupColumnBackgroundInRect:dirtyRect];
     }
 
-    // STEP 2: Draw only visible rows (typically ~30 rows)
+    // STEP 2: Draw rows in the dirty range
     for (NSInteger row = firstRow; row <= lastRow; row++) {
         NSRect rowRect = [self rectForRow:row];
-        if (NSIntersectsRect(rowRect, dirtyRect)) {
-            [self drawSparseRow:row inRect:rowRect];
-        }
+        [self drawSparseRow:row inRect:rowRect];
     }
 
     // STEP 3: Draw album art on top (after all row content)
