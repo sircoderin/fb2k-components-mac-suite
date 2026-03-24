@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## SimPlaylist
 
+### [1.4.3] - 2026-03-24
+
+#### Fixed
+- **Space key**: Now toggles play/pause instead of track selection; starts playback when stopped.
+- **Scroll rendering**: Tracks no longer appear blank when scrolling to albums outside the initial viewport.
+- **Import sort order**: Tracks sorted by metadata (album artist, album, track number) instead of filename.
+
 ### [1.4.0] - 2026-02-10
 
 #### Added

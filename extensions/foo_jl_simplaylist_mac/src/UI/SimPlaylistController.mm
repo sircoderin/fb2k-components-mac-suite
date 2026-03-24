@@ -1391,9 +1391,15 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
     return [NSString stringWithFormat:@"%@|%@", preset.headerPattern, sub];
 }
 
+// Maximum group count for caching. configStore is designed for small config
+// values, not megabytes of serialized data. Large playlists fall back to
+// background detection which is fast enough.
+static const NSUInteger kMaxCacheableGroups = 500;
+
 - (void)saveGroupCacheForPlaylist:(t_size)playlist synchronous:(BOOL)synchronous {
     if (!_currentPlaylistInitialized) return;
     if (_playlistView.groupStarts.count == 0) return;
+    if (_playlistView.groupStarts.count > kMaxCacheableGroups) return;
 
     // Get playlist name
     auto pm = playlist_manager::get();
@@ -1406,7 +1412,6 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
     // Capture snapshot on main thread
     NSArray<NSNumber *> *groupStarts = [_playlistView.groupStarts copy];
     NSArray<NSString *> *groupHeaders = [_playlistView.groupHeaders copy];
-    NSArray<NSString *> *groupArtKeys = [_playlistView.groupArtKeys copy];
     NSArray<NSNumber *> *subgroupStarts = [_playlistView.subgroupStarts copy];
     NSArray<NSString *> *subgroupHeaders = [_playlistView.subgroupHeaders copy];
     NSInteger itemCount = _playlistView.itemCount;
@@ -1437,7 +1442,10 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
             cache[@"scrollAnchor"] = @(scrollAnchor);
             cache[@"groupStarts"] = groupStarts;
             cache[@"groupHeaders"] = groupHeaders;
-            cache[@"groupArtKeys"] = groupArtKeys;
+            // groupArtKeys intentionally omitted — they contain full file paths
+            // which can be megabytes for large playlists. The view only checks
+            // groupArtKeys.count; actual art paths come from track handles.
+            cache[@"groupCount"] = @(groupStarts.count);
             cache[@"subgroupStarts"] = subgroupStarts;
             cache[@"subgroupHeaders"] = subgroupHeaders;
 
@@ -1499,14 +1507,20 @@ static NSString *presetHashForPreset(GroupPreset *preset) {
     // Extract arrays
     NSArray *groupStarts = cache[@"groupStarts"];
     NSArray *groupHeaders = cache[@"groupHeaders"];
-    NSArray *groupArtKeys = cache[@"groupArtKeys"];
     NSArray *subgroupStarts = cache[@"subgroupStarts"];
     NSArray *subgroupHeaders = cache[@"subgroupHeaders"];
     NSNumber *scrollAnchor = cache[@"scrollAnchor"];
 
-    if (!groupStarts || !groupHeaders || !groupArtKeys) return NO;
-    if (groupStarts.count != groupHeaders.count || groupStarts.count != groupArtKeys.count) return NO;
+    if (!groupStarts || !groupHeaders) return NO;
+    if (groupStarts.count != groupHeaders.count) return NO;
     if (groupStarts.count == 0) return NO;
+
+    // Generate placeholder art keys — the view only checks count, not values.
+    // Actual art paths are resolved from track handles by the delegate.
+    NSMutableArray<NSString *> *groupArtKeys = [NSMutableArray arrayWithCapacity:groupStarts.count];
+    for (NSUInteger i = 0; i < groupStarts.count; i++) {
+        [groupArtKeys addObject:@""];
+    }
 
     // Apply cached data to view
     _playlistView.itemCount = itemCount;

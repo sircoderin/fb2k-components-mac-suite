@@ -2,6 +2,13 @@
 
 All notable changes to SimPlaylist will be documented in this file.
 
+## [1.4.3] - 2026-03-24
+
+### Fixed
+- **Space key**: Now toggles play/pause instead of track selection; starts playback when stopped. (thanks @sircoderin, #12)
+- **Scroll rendering**: Tracks no longer appear blank when scrolling to albums outside the initial viewport. (thanks @sircoderin, #10)
+- **Import sort order**: Tracks sorted by metadata (album artist, album, track number) instead of filename. (thanks @sircoderin, #8)
+
 ## [1.4.2] - 2026-03-08
 
 ### Added

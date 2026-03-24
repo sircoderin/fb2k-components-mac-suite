@@ -2478,8 +2478,15 @@ NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simplaylist.
             break;
 
         case ' ':  // Space - toggle play/pause (consistent with foobar2000 convention)
-            playback_control::get()->toggle_pause();
+        {
+            auto pc = playback_control::get();
+            if (pc->is_playing() || pc->is_paused()) {
+                pc->toggle_pause();
+            } else {
+                pc->play_or_unpause();
+            }
             break;
+        }
 
         case '\r':  // Enter - execute default action on focused track
             if (_focusIndex >= 0 &&
