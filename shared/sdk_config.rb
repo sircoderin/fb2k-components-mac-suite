@@ -71,7 +71,6 @@ module Fb2kVersions
   # Map component names to their version constant names
   VERSION_MAP = {
     "albumviewvanced" => "ALBUMVIEWVANCED_VERSION",
-    "libui" => "ALBUMVIEWVANCED_VERSION",
     "effects_dsp" => "EFFECTS_DSP_VERSION",
     "simplaylist" => "SIMPLAYLIST_VERSION",
     "plorg" => "PLORG_VERSION",

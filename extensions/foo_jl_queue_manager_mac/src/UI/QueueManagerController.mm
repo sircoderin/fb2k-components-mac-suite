@@ -538,7 +538,7 @@ static void ensureStatusIcons() {
     NSNumber* sourcePlaylistNum = dragData[@"sourcePlaylist"];
     NSArray<NSNumber*>* rowNumbers = dragData[@"indices"];
 
-    // Library drag (e.g. from LibUI): indices are empty but paths are provided
+    // Library drag (e.g. from AlbumViewVanced): indices are empty but paths are provided
     if (!rowNumbers || rowNumbers.count == 0) {
         NSArray<NSString*>* paths = dragData[@"paths"];
         if (!paths || paths.count == 0) {
