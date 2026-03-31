@@ -3,7 +3,12 @@
 #import "../Core/AlbumDataSource.h"
 #import "../Core/AlbumItem.h"
 #import "../fb2k_sdk.h"
+#import "../../../../shared/PreferencesCommon.h"
 #import "../../../../shared/UIStyles.h"
+
+namespace albumviewvanced_config {
+static const char* const kStableNowPlayingPlaylistName = "Now Playing (AlbumViewVanced)";
+}
 
 static const CGFloat kSearchFieldHeight = 24.0;
 static const CGFloat kStatusBarHeight   = 18.0;
@@ -32,6 +37,7 @@ static const CGFloat kPadding           = 8.0;
     // Debounced search
     NSTimer *_searchDebounceTimer;
     NSTimer *_libraryRebuildDebounceTimer;
+
 }
 
 - (void)loadView {
@@ -213,11 +219,11 @@ static const CGFloat kPadding           = 8.0;
 }
 
 - (void)albumGridView:(id)gridView wantsQueueAlbum:(AlbumItem *)album {
-    [self queuePathsDirectly:[album allTrackPaths]];
+    [self queuePathsDirectlyInternal:[album allTrackPaths]];
 }
 
 - (void)albumGridView:(id)gridView wantsQueueTrack:(AlbumTrack *)track inAlbum:(AlbumItem *)album {
-    [self queuePathsDirectly:@[track.path]];
+    [self queuePathsDirectlyInternal:@[track.path]];
 }
 
 - (void)albumGridView:(id)gridView requestsContextMenuForAlbum:(AlbumItem *)album atPoint:(NSPoint)screenPoint {
@@ -231,7 +237,7 @@ static const CGFloat kPadding           = 8.0;
 
 #pragma mark - Playback actions
 
-/// Flush the playback queue, add all tracks, and start playing from startIndex
+/// Replace the stable Now Playing playlist and start playback from startIndex
 - (void)playPaths:(NSArray<NSString *> *)paths startIndex:(NSUInteger)startIndex {
     if (paths.count == 0) return;
 
@@ -248,14 +254,19 @@ static const CGFloat kPadding           = 8.0;
         if (items.get_count() == 0) return;
         if (startIndex >= items.get_count()) startIndex = 0;
 
-        // Flush queue, add tracks starting from the requested index
-        plMgr->queue_flush();
-        for (t_size i = startIndex; i < items.get_count(); i++) {
-            plMgr->queue_add_item(items[i]);
+        if (plMgr->queue_get_count() > 0) {
+            plMgr->queue_flush();
         }
-        for (t_size i = 0; i < startIndex; i++) {
-            plMgr->queue_add_item(items[i]);
+
+        const char *playlistName = albumviewvanced_config::kStableNowPlayingPlaylistName;
+        t_size playlistIndex = plMgr->find_playlist(playlistName, pfc_infinite);
+        if (playlistIndex == pfc_infinite) {
+            playlistIndex = plMgr->create_playlist(playlistName, SIZE_MAX, SIZE_MAX);
         }
+        plMgr->set_active_playlist(playlistIndex);
+        plMgr->playlist_clear(playlistIndex);
+        plMgr->playlist_insert_items(playlistIndex, 0, items, pfc::bit_array_false());
+        plMgr->playlist_set_focus_item(playlistIndex, startIndex);
 
         pbCtrl->start(playback_control::track_command_play);
     } catch (...) {
@@ -264,12 +275,14 @@ static const CGFloat kPadding           = 8.0;
 }
 
 - (void)addPathsToQueue:(NSArray<NSString *> *)paths {
+    [self queuePathsDirectlyInternal:paths];
+}
+
+- (void)queuePathsDirectlyInternal:(NSArray<NSString *> *)paths {
     if (paths.count == 0) return;
 
     try {
         auto plMgr = playlist_manager::get();
-        auto pbCtrl = playback_control::get();
-
         t_size active = plMgr->get_active_playlist();
         if (active == pfc::infinite_size) {
             active = plMgr->create_playlist_autoname(0);
@@ -285,42 +298,14 @@ static const CGFloat kPadding           = 8.0;
 
         if (items.get_count() == 0) return;
 
-        // Add to active playlist first
         t_size baseIndex = plMgr->playlist_get_item_count(active);
         plMgr->playlist_add_items(active, items, bit_array_false());
 
-        // Queue each added item
-        bool queueWasEmpty = (plMgr->queue_get_count() == 0);
         for (t_size i = 0; i < items.get_count(); i++) {
             plMgr->queue_add_item_playlist(active, baseIndex + i);
         }
-
-        // Auto-start playback if queue was empty and not playing
-        if (queueWasEmpty && !pbCtrl->is_playing()) {
-            pbCtrl->start(playback_control::track_command_play);
-        }
     } catch (...) {
         FB2K_console_formatter() << "[AlbumViewVanced] Error adding tracks to queue";
-    }
-}
-
-/// Queue paths directly without adding them to any playlist.
-- (void)queuePathsDirectly:(NSArray<NSString *> *)paths {
-    if (paths.count == 0) return;
-    try {
-        auto plMgr = playlist_manager::get();
-        auto pbCtrl = playback_control::get();
-        auto db = metadb::get();
-        bool queueWasEmpty = (plMgr->queue_get_count() == 0);
-        for (NSString *path in paths) {
-            auto handle = db->handle_create([path UTF8String], 0);
-            if (handle.is_valid()) plMgr->queue_add_item(handle);
-        }
-        if (queueWasEmpty && !pbCtrl->is_playing()) {
-            pbCtrl->start(playback_control::track_command_play);
-        }
-    } catch (...) {
-        FB2K_console_formatter() << "[AlbumViewVanced] Error queuing tracks";
     }
 }
 
@@ -346,16 +331,18 @@ static const CGFloat kPadding           = 8.0;
         NSMenuItem *playItem = [[NSMenuItem alloc]
             initWithTitle:@"Play"
                    action:@selector(contextPlay:)
-            keyEquivalent:@"\r"];
+             keyEquivalent:@"\r"];
         playItem.target = self;
+        playItem.keyEquivalentModifierMask = 0;
         playItem.representedObject = paths;
         [menu addItem:playItem];
 
         NSMenuItem *addToQueueItem = [[NSMenuItem alloc]
             initWithTitle:@"Add to Playback Queue"
                    action:@selector(contextAddToQueue:)
-            keyEquivalent:@"q"];
+             keyEquivalent:@"q"];
         addToQueueItem.target = self;
+        addToQueueItem.keyEquivalentModifierMask = 0;
         addToQueueItem.representedObject = paths;
         [menu addItem:addToQueueItem];
 

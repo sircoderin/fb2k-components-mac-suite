@@ -15,21 +15,23 @@ Accepted layout names:
 
 ## Shortcuts & Interactions
 
-- **Enter** — play selected album/track
+- **Enter** — plays the selected album/track via the AlbumViewVanced temp playlist
 - **Q** — add selected album/track to playback queue
 - **Space** — play/pause
 - **Esc** — collapse expanded album
 - **Arrow keys** — navigate albums/tracks
-- **Double-click** — play clicked album/track
+- **Double-click** — same action as Enter
 - **Right-click** — open context menu
 - **Drag** album/track — drop into SimPlaylist, Queue Manager, PlayVanced, or Finder
 
 ## Important Behavior
 
-- Selecting an album and pressing **Enter** plays that album immediately.
+- Double-click and Enter always play the album/track through `Now Playing (AlbumViewVanced)`.
+- If the playback queue already contains items, it is cleared before the album context starts.
+- **Q** and context-menu queue actions keep their existing queue behavior.
 - **Q** queues without switching view context.
+- Context-menu **Play** uses the same temp-playlist playback path.
 - Search is live with a short debounce; **Enter** applies immediately and **Esc** in the search field clears it.
-- If queue is empty and playback is stopped, queue actions can auto-start playback.
 
 ## Changelog
 

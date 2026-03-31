@@ -15,7 +15,7 @@ JL_COMPONENT_ABOUT(
     "- Search/filter with library search syntax\n"
     "- Drag & drop to playlists and queue\n"
     "- Context menu with playlist/queue actions\n"
-    "- Keyboard shortcuts (Q to queue, Enter to send)\n"
+    "- Keyboard shortcuts (Q to queue, Enter to play)\n"
     "- Dark mode support"
 );
 
@@ -59,12 +59,10 @@ namespace {
 class albumviewvanced_init : public initquit {
 public:
     void on_init() override {
-        AlbumViewVancedCallbackManager::instance().initCallbacks();
         console::info("[AlbumViewVanced] Component initialized");
     }
 
     void on_quit() override {
-        AlbumViewVancedCallbackManager::instance().shutdownCallbacks();
         console::info("[AlbumViewVanced] Component shutting down");
     }
 };

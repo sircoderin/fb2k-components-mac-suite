@@ -16,9 +16,6 @@ public:
     void onLibraryItemsRemoved(metadb_handle_list_cref items);
     void onLibraryItemsModified(metadb_handle_list_cref items);
 
-    void initCallbacks();
-    void shutdownCallbacks();
-
 private:
     AlbumViewVancedCallbackManager() = default;
 };

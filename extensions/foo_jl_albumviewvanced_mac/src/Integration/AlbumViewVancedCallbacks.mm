@@ -72,6 +72,3 @@ public:
 };
 
 FB2K_SERVICE_FACTORY(albumviewvanced_library_callback);
-
-void AlbumViewVancedCallbackManager::initCallbacks() {}
-void AlbumViewVancedCallbackManager::shutdownCallbacks() {}

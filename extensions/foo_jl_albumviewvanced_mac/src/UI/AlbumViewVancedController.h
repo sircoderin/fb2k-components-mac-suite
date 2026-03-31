@@ -1,6 +1,7 @@
 #pragma once
 
 #import <Cocoa/Cocoa.h>
+#include "../fb2k_sdk.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
