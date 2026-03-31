@@ -340,11 +340,57 @@ static const CGFloat kPadding           = 8.0;
         NSMenuItem *addToQueueItem = [[NSMenuItem alloc]
             initWithTitle:@"Add to Playback Queue"
                    action:@selector(contextAddToQueue:)
-             keyEquivalent:@"q"];
+              keyEquivalent:@"q"];
         addToQueueItem.target = self;
         addToQueueItem.keyEquivalentModifierMask = 0;
         addToQueueItem.representedObject = paths;
         [menu addItem:addToQueueItem];
+
+        NSMenuItem *addToPlaylistItem = [[NSMenuItem alloc]
+            initWithTitle:@"Add to Playlist"
+                   action:nil
+            keyEquivalent:@""];
+        NSMenu *playlistMenu = [[NSMenu alloc] initWithTitle:@"Add to Playlist"];
+
+        NSMenuItem *currentPlaylistItem = [[NSMenuItem alloc]
+            initWithTitle:@"Current Playlist"
+                   action:@selector(contextAddToCurrentPlaylist:)
+            keyEquivalent:@""];
+        currentPlaylistItem.target = self;
+        currentPlaylistItem.representedObject = paths;
+        [playlistMenu addItem:currentPlaylistItem];
+
+        NSMenuItem *newPlaylistItem = [[NSMenuItem alloc]
+            initWithTitle:@"New Playlist"
+                   action:@selector(contextAddToNewPlaylist:)
+            keyEquivalent:@""];
+        newPlaylistItem.target = self;
+        newPlaylistItem.representedObject = paths;
+        [playlistMenu addItem:newPlaylistItem];
+
+        [playlistMenu addItem:[NSMenuItem separatorItem]];
+
+        auto plMgr = playlist_manager::get();
+        t_size playlistCount = plMgr->get_playlist_count();
+        for (t_size i = 0; i < playlistCount; i++) {
+            pfc::string8 name;
+            const bool gotName = plMgr->playlist_get_name(i, name);
+            NSString *title = gotName && name.length() > 0
+                ? [NSString stringWithUTF8String:name.c_str()]
+                : [NSString stringWithFormat:@"Playlist %lu", (unsigned long)(i + 1)];
+
+            NSMenuItem *playlistItem = [[NSMenuItem alloc]
+                initWithTitle:title
+                       action:@selector(contextAddToSpecificPlaylist:)
+                keyEquivalent:@""];
+            playlistItem.target = self;
+            playlistItem.tag = (NSInteger)i;
+            playlistItem.representedObject = paths;
+            [playlistMenu addItem:playlistItem];
+        }
+
+        addToPlaylistItem.submenu = playlistMenu;
+        [menu addItem:addToPlaylistItem];
 
         [menu addItem:[NSMenuItem separatorItem]];
 
@@ -424,6 +470,59 @@ static const CGFloat kPadding           = 8.0;
 - (void)contextAddToQueue:(NSMenuItem *)sender {
     NSArray<NSString *> *paths = sender.representedObject;
     [self addPathsToQueue:paths];
+}
+
+- (void)contextAddToCurrentPlaylist:(NSMenuItem *)sender {
+    NSArray<NSString *> *paths = sender.representedObject;
+    [self appendPaths:paths toPlaylistIndex:[self activePlaylistOrCreate:YES]];
+}
+
+- (void)contextAddToNewPlaylist:(NSMenuItem *)sender {
+    NSArray<NSString *> *paths = sender.representedObject;
+    [self appendPaths:paths toPlaylistIndex:[self createAutoNamedPlaylist]];
+}
+
+- (void)contextAddToSpecificPlaylist:(NSMenuItem *)sender {
+    NSArray<NSString *> *paths = sender.representedObject;
+    [self appendPaths:paths toPlaylistIndex:(t_size)sender.tag];
+}
+
+- (t_size)activePlaylistOrCreate:(BOOL)createIfMissing {
+    auto plMgr = playlist_manager::get();
+    t_size active = plMgr->get_active_playlist();
+    if (active == pfc::infinite_size && createIfMissing) {
+        active = plMgr->create_playlist_autoname(0);
+        plMgr->set_active_playlist(active);
+    }
+    return active;
+}
+
+- (t_size)createAutoNamedPlaylist {
+    auto plMgr = playlist_manager::get();
+    t_size playlist = plMgr->create_playlist_autoname(0);
+    plMgr->set_active_playlist(playlist);
+    return playlist;
+}
+
+- (void)appendPaths:(NSArray<NSString *> *)paths toPlaylistIndex:(t_size)playlistIndex {
+    if (paths.count == 0 || playlistIndex == pfc::infinite_size) return;
+
+    try {
+        metadb_handle_list items;
+        auto db = metadb::get();
+        for (NSString *path in paths) {
+            auto handle = db->handle_create([path UTF8String], 0);
+            if (handle.is_valid()) items.add_item(handle);
+        }
+
+        if (items.get_count() == 0) return;
+
+        auto plMgr = playlist_manager::get();
+        t_size baseIndex = plMgr->playlist_get_item_count(playlistIndex);
+        plMgr->playlist_insert_items(playlistIndex, baseIndex, items, pfc::bit_array_false());
+    } catch (...) {
+        FB2K_console_formatter() << "[AlbumViewVanced] Error adding tracks to playlist";
+    }
 }
 
 #pragma mark - Library callbacks
