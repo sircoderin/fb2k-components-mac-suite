@@ -159,11 +159,11 @@ static const CGFloat kPadding           = 8.0;
 
 - (void)controlTextDidChange:(NSNotification *)obj {
     [_searchDebounceTimer invalidate];
-    _searchDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
-                                                           target:self
-                                                         selector:@selector(debouncedSearch)
-                                                         userInfo:nil
-                                                          repeats:NO];
+    _searchDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.2
+                                                            target:self
+                                                          selector:@selector(debouncedSearch)
+                                                          userInfo:nil
+                                                           repeats:NO];
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView

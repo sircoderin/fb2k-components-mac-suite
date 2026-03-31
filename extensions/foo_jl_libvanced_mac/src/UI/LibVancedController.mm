@@ -32,6 +32,7 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
     LibraryDataSource *_dataSource;
     NSString *_currentFilter;
     BOOL _isLoading;
+    NSTimer *_searchDebounceTimer;
 
     // Context menu state
     contextmenu_manager_v2::ptr _contextMenuManager;
@@ -60,6 +61,7 @@ static NSPasteboardType const SimPlaylistPasteboardType = @"com.foobar2000.simpl
 }
 
 - (void)dealloc {
+    [_searchDebounceTimer invalidate];
     LibVancedCallbackManager_unregisterController(self);
 }
 
@@ -180,13 +182,43 @@ static const CGFloat kStatusBottomMargin = 2.0;
 
 #pragma mark - NSSearchFieldDelegate
 
+- (void)controlTextDidChange:(NSNotification *)obj {
+    [_searchDebounceTimer invalidate];
+    _searchDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.2
+                                                           target:self
+                                                         selector:@selector(debouncedSearch)
+                                                         userInfo:nil
+                                                          repeats:NO];
+}
+
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView
+    doCommandBySelector:(SEL)commandSelector {
+    if (commandSelector == @selector(insertNewline:)) {
+        [_searchDebounceTimer invalidate];
+        [self performSearch];
+        return YES;
+    }
+    if (commandSelector == @selector(cancelOperation:)) {
+        [_searchDebounceTimer invalidate];
+        _searchField.stringValue = @"";
+        [self performSearch];
+        return YES;
+    }
+    return NO;
+}
+
 - (void)controlTextDidEndEditing:(NSNotification *)obj {
     [self performSearch];
 }
 
 - (void)searchFieldDidEndSearching:(NSSearchField *)sender {
+    [_searchDebounceTimer invalidate];
     _currentFilter = nil;
     [_dataSource rebuildTree];
+}
+
+- (void)debouncedSearch {
+    [self performSearch];
 }
 
 - (void)performSearch {
