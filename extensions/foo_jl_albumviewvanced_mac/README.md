@@ -26,12 +26,13 @@ Accepted layout names:
 
 ## Important Behavior
 
-- Double-click and Enter always play the album/track through `Now Playing (AlbumViewVanced)`.
+- Double-click and Enter always play the album/track through `Now Playing`.
 - If the playback queue already contains items, it is cleared before the album context starts.
 - **Q** and context-menu queue actions keep their existing queue behavior.
 - **Q** queues without switching view context.
 - Context-menu **Play** uses the same temp-playlist playback path.
-- Context-menu **Add to Playlist** can append to the current playlist, create a new playlist, or target any existing playlist.
+- Context-menu **Add to Now Playing** appends to `Now Playing`.
+- Context-menu **Add to Playlist** can append to the current playlist, create a new playlist, or target any existing playlist (sorted list, excluding `Now Playing`).
 - Search is live with a short debounce; **Enter** applies immediately and **Esc** in the search field clears it.
 
 ## Changelog

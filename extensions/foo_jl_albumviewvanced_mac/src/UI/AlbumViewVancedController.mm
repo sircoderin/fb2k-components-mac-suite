@@ -5,9 +5,11 @@
 #import "../fb2k_sdk.h"
 #import "../../../../shared/PreferencesCommon.h"
 #import "../../../../shared/UIStyles.h"
+#include <algorithm>
+#include <vector>
 
 namespace albumviewvanced_config {
-static const char* const kStableNowPlayingPlaylistName = "Now Playing (AlbumViewVanced)";
+static const char* const kStableNowPlayingPlaylistName = "Now Playing";
 }
 
 static const CGFloat kSearchFieldHeight = 24.0;
@@ -258,11 +260,7 @@ static const CGFloat kPadding           = 8.0;
             plMgr->queue_flush();
         }
 
-        const char *playlistName = albumviewvanced_config::kStableNowPlayingPlaylistName;
-        t_size playlistIndex = plMgr->find_playlist(playlistName, pfc_infinite);
-        if (playlistIndex == pfc_infinite) {
-            playlistIndex = plMgr->create_playlist(playlistName, SIZE_MAX, SIZE_MAX);
-        }
+        t_size playlistIndex = [self nowPlayingPlaylistOrCreate];
         plMgr->set_active_playlist(playlistIndex);
         plMgr->playlist_clear(playlistIndex);
         plMgr->playlist_insert_items(playlistIndex, 0, items, pfc::bit_array_false());
@@ -340,10 +338,19 @@ static const CGFloat kPadding           = 8.0;
         NSMenuItem *addToQueueItem = [[NSMenuItem alloc]
             initWithTitle:@"Add to Playback Queue"
                    action:@selector(contextAddToQueue:)
-              keyEquivalent:@"q"];
+               keyEquivalent:@"q"];
         addToQueueItem.target = self;
         addToQueueItem.keyEquivalentModifierMask = 0;
         addToQueueItem.representedObject = paths;
+
+        NSMenuItem *addToNowPlayingItem = [[NSMenuItem alloc]
+            initWithTitle:@"Add to Now Playing"
+                   action:@selector(contextAddToNowPlayingPlaylist:)
+            keyEquivalent:@""];
+        addToNowPlayingItem.target = self;
+        addToNowPlayingItem.representedObject = paths;
+
+        [menu addItem:addToNowPlayingItem];
         [menu addItem:addToQueueItem];
 
         NSMenuItem *addToPlaylistItem = [[NSMenuItem alloc]
@@ -372,6 +379,13 @@ static const CGFloat kPadding           = 8.0;
 
         auto plMgr = playlist_manager::get();
         t_size playlistCount = plMgr->get_playlist_count();
+        struct PlaylistEntry {
+            NSString *title;
+            t_size index;
+        };
+        std::vector<PlaylistEntry> entries;
+        entries.reserve((size_t)playlistCount);
+
         for (t_size i = 0; i < playlistCount; i++) {
             pfc::string8 name;
             const bool gotName = plMgr->playlist_get_name(i, name);
@@ -379,12 +393,25 @@ static const CGFloat kPadding           = 8.0;
                 ? [NSString stringWithUTF8String:name.c_str()]
                 : [NSString stringWithFormat:@"Playlist %lu", (unsigned long)(i + 1)];
 
+            if ([title isEqualToString:@"Now Playing"] ||
+                [title isEqualToString:@"Now Playing (AlbumViewVanced)"]) {
+                continue;
+            }
+
+            entries.push_back({title, i});
+        }
+
+        std::sort(entries.begin(), entries.end(), [](const PlaylistEntry &a, const PlaylistEntry &b) {
+            return [a.title localizedCaseInsensitiveCompare:b.title] == NSOrderedAscending;
+        });
+
+        for (const auto &entry : entries) {
             NSMenuItem *playlistItem = [[NSMenuItem alloc]
-                initWithTitle:title
+                initWithTitle:entry.title
                        action:@selector(contextAddToSpecificPlaylist:)
                 keyEquivalent:@""];
             playlistItem.target = self;
-            playlistItem.tag = (NSInteger)i;
+            playlistItem.tag = (NSInteger)entry.index;
             playlistItem.representedObject = paths;
             [playlistMenu addItem:playlistItem];
         }
@@ -472,6 +499,11 @@ static const CGFloat kPadding           = 8.0;
     [self addPathsToQueue:paths];
 }
 
+- (void)contextAddToNowPlayingPlaylist:(NSMenuItem *)sender {
+    NSArray<NSString *> *paths = sender.representedObject;
+    [self appendPaths:paths toPlaylistIndex:[self nowPlayingPlaylistOrCreate]];
+}
+
 - (void)contextAddToCurrentPlaylist:(NSMenuItem *)sender {
     NSArray<NSString *> *paths = sender.representedObject;
     [self appendPaths:paths toPlaylistIndex:[self activePlaylistOrCreate:YES]];
@@ -501,6 +533,16 @@ static const CGFloat kPadding           = 8.0;
     auto plMgr = playlist_manager::get();
     t_size playlist = plMgr->create_playlist_autoname(0);
     plMgr->set_active_playlist(playlist);
+    return playlist;
+}
+
+- (t_size)nowPlayingPlaylistOrCreate {
+    auto plMgr = playlist_manager::get();
+    const char *playlistName = albumviewvanced_config::kStableNowPlayingPlaylistName;
+    t_size playlist = plMgr->find_playlist(playlistName, pfc_infinite);
+    if (playlist == pfc_infinite) {
+        playlist = plMgr->create_playlist(playlistName, SIZE_MAX, SIZE_MAX);
+    }
     return playlist;
 }
 
